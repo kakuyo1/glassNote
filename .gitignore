@@ -1,0 +1,15 @@
+# Build outputs
+/build/
+/cmake-build-*/
+
+# CMake generated files (in-source safety)
+/CMakeCache.txt
+/CMakeFiles/
+/Testing/
+
+# IDE/local settings
+/.qtcreator/
+*.user
+
+# Runtime data
+/notes.json
