@@ -40,6 +40,8 @@ public:
     void setBaseLayerOpacity(qreal opacity);
     void setExternalFileSyncEnabled(bool enabled);
     void setAlwaysOnTopEnabled(bool enabled);
+    void setLaunchAtStartupEnabled(bool enabled);
+    void setAutoCheckUpdatesEnabled(bool enabled);
     void setWindowLocked(bool enabled);
     void focusNoteEditor(const QString &noteId);
     void restoreWindowPosition(const QPoint &position);
@@ -67,7 +69,10 @@ signals:
     void restoreLatestBackupRequested();
     void externalFileSyncToggled(bool enabled);
     void alwaysOnTopToggled(bool enabled);
+    void launchAtStartupToggled(bool enabled);
+    void autoCheckUpdatesToggled(bool enabled);
     void windowLockToggled(bool enabled);
+    void checkForUpdatesRequested();
     void reminderSetRequested(const QString &noteId);
     void reminderClearedRequested(const QString &noteId);
     void timelineReplayRequested();

@@ -17,6 +17,10 @@ AppState makeState(int noteCount) {
     state.baseLayerOpacity = 0.9;
     state.uiStyle = UiStyle::Neon;
     state.alwaysOnTop = true;
+    state.launchAtStartup = true;
+    state.autoCheckUpdates = false;
+    state.ignoredUpdateVersion = QStringLiteral("0.2.0");
+    state.lastUpdateCheckEpochMsec = 1700001234567LL;
     state.windowLocked = true;
     state.windowPosition = QPoint(88, 99);
     state.windowSize = QSize(512, 420);
@@ -63,6 +67,10 @@ void GlassNoteIntegrationTests::loadEditSaveReloadFlow() {
     QCOMPARE(loaded.status, JsonStorageService::LoadStatus::Success);
     QCOMPARE(loaded.state.notes.size(), 2);
     QCOMPARE(loaded.state.uiStyle, UiStyle::Neon);
+    QCOMPARE(loaded.state.launchAtStartup, true);
+    QCOMPARE(loaded.state.autoCheckUpdates, false);
+    QCOMPARE(loaded.state.ignoredUpdateVersion, QStringLiteral("0.2.0"));
+    QCOMPARE(loaded.state.lastUpdateCheckEpochMsec, 1700001234567LL);
     QCOMPARE(loaded.state.notes.at(0).sticker, QStringLiteral("⭐"));
 
     loaded.state.notes[0].text = QStringLiteral("edited-text");
@@ -80,6 +88,10 @@ void GlassNoteIntegrationTests::loadEditSaveReloadFlow() {
     QCOMPARE(reloaded.state.notes.at(2).order, 2);
     QCOMPARE(reloaded.state.notes.at(0).sticker, QStringLiteral("⭐"));
     QCOMPARE(reloaded.state.uiStyle, UiStyle::Neon);
+    QCOMPARE(reloaded.state.launchAtStartup, true);
+    QCOMPARE(reloaded.state.autoCheckUpdates, false);
+    QCOMPARE(reloaded.state.ignoredUpdateVersion, QStringLiteral("0.2.0"));
+    QCOMPARE(reloaded.state.lastUpdateCheckEpochMsec, 1700001234567LL);
 }
 
 }  // namespace glassnote

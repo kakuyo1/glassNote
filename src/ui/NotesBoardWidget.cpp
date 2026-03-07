@@ -343,6 +343,20 @@ void NotesBoardWidget::setAlwaysOnTopEnabled(bool enabled) {
     }
 }
 
+void NotesBoardWidget::setLaunchAtStartupEnabled(bool enabled) {
+    m_launchAtStartupEnabled = enabled;
+    for (NoteCardWidget *card : std::as_const(m_cards)) {
+        card->setLaunchAtStartupEnabled(enabled);
+    }
+}
+
+void NotesBoardWidget::setAutoCheckUpdatesEnabled(bool enabled) {
+    m_autoCheckUpdatesEnabled = enabled;
+    for (NoteCardWidget *card : std::as_const(m_cards)) {
+        card->setAutoCheckUpdatesEnabled(enabled);
+    }
+}
+
 void NotesBoardWidget::setWindowLocked(bool enabled) {
     m_windowLocked = enabled;
     for (NoteCardWidget *card : std::as_const(m_cards)) {
@@ -421,7 +435,10 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
                     this,
                     &NotesBoardWidget::externalFileSyncToggled);
             connect(card, &NoteCardWidget::alwaysOnTopToggled, this, &NotesBoardWidget::alwaysOnTopToggled);
+            connect(card, &NoteCardWidget::launchAtStartupToggled, this, &NotesBoardWidget::launchAtStartupToggled);
+            connect(card, &NoteCardWidget::autoCheckUpdatesToggled, this, &NotesBoardWidget::autoCheckUpdatesToggled);
             connect(card, &NoteCardWidget::windowLockToggled, this, &NotesBoardWidget::windowLockToggled);
+            connect(card, &NoteCardWidget::checkForUpdatesRequested, this, &NotesBoardWidget::checkForUpdatesRequested);
             connect(card, &NoteCardWidget::reminderSetRequested, this, &NotesBoardWidget::reminderSetRequested);
             connect(card, &NoteCardWidget::reminderClearedRequested, this, &NotesBoardWidget::reminderClearedRequested);
             connect(card, &NoteCardWidget::timelineReplayRequested, this, &NotesBoardWidget::timelineReplayRequested);
@@ -444,6 +461,8 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
         card->setUiStyle(m_uiStyle);
         card->setExternalFileSyncEnabled(m_externalFileSyncEnabled);
         card->setAlwaysOnTopEnabled(m_alwaysOnTopEnabled);
+        card->setLaunchAtStartupEnabled(m_launchAtStartupEnabled);
+        card->setAutoCheckUpdatesEnabled(m_autoCheckUpdatesEnabled);
         card->setWindowLocked(m_windowLocked);
         card->setReminderEpochMsec(item.reminderEpochMsec);
         card->show();

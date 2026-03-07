@@ -13,6 +13,8 @@ class QSystemTrayIcon;
 class QTimer;
 class QAction;
 class QClipboard;
+class QNetworkAccessManager;
+class QUrl;
 
 namespace glassnote {
 
@@ -57,6 +59,9 @@ private:
     void handleRestoreLatestBackupRequested();
     void handleExternalFileSyncToggled(bool enabled);
     void handleAlwaysOnTopToggled(bool enabled);
+    void handleLaunchAtStartupToggled(bool enabled);
+    void handleAutoCheckUpdatesToggled(bool enabled);
+    void handleCheckForUpdatesRequested();
     void handleWindowLockToggled(bool enabled);
     void handleReminderSetRequested(const QString &noteId);
     void handleReminderClearedRequested(const QString &noteId);
@@ -84,6 +89,11 @@ private:
     void showLoadRecoveryMessage(const JsonStorageService::LoadResult &result, bool fromExternalSync);
     void refreshStorageFileWatch();
     void setExternalFileSyncEnabled(bool enabled);
+    void scheduleAutomaticUpdateCheck();
+    void requestUpdateCheck(bool manual);
+    void downloadAndInstallUpdate(const QString &version,
+                                  const QUrl &installerUrl,
+                                  const QString &expectedSha256);
     void saveState();
 
     AppState m_state;
@@ -97,6 +107,7 @@ private:
     QSystemTrayIcon *m_trayIcon = nullptr;
     QMenu *m_trayMenu = nullptr;
     QClipboard *m_clipboard = nullptr;
+    QNetworkAccessManager *m_updateNetworkManager = nullptr;
     QAction *m_trayClipboardImportAction = nullptr;
     QAction *m_trayClipboardInboxToggleAction = nullptr;
     QAction *m_trayOcrToggleAction = nullptr;
@@ -106,6 +117,7 @@ private:
     bool m_ocrExperimentalEnabled = false;
     bool m_addHotkeyRegistered = false;
     bool m_quickCaptureHotkeyRegistered = false;
+    bool m_updateCheckInProgress = false;
     bool m_nativeEventFilterInstalled = false;
     bool m_quitInProgress = false;
 };

@@ -10,6 +10,8 @@
 #include <QCursor>
 #include <QDesktopServices>
 #include <QDateTimeEdit>
+#include <QCryptographicHash>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
@@ -20,11 +22,23 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QMenu>
+#include <QProgressDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QAbstractButton>
 #include <QApplication>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QProcess>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QSet>
+#include <QSettings>
 #include <QScreen>
+#include <QStandardPaths>
 #include <QStyle>
 #include <QSystemTrayIcon>
 #include <QTextDocument>
@@ -33,6 +47,8 @@
 #include <QUuid>
 #include <QVBoxLayout>
 #include <QLoggingCategory>
+
+#include <memory>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -63,6 +79,313 @@ constexpr UINT kQuickCaptureHotkeyVirtualKey = 0x51;  // Q
 constexpr int kReminderPollToleranceMsec = 500;
 constexpr int kReminderMaxIntervalMsec = 24 * 24 * 60 * 60 * 1000;
 constexpr int kClipboardInboxPreviewLength = 36;
+constexpr qint64 kAutoUpdateCheckMinIntervalMsec = 24LL * 60LL * 60LL * 1000LL;
+
+const auto kDefaultUpdateManifestUrl = QStringLiteral(
+    "https://github.com/kakuyo1/glassNote/releases/latest/download/update-manifest.json");
+const auto kDefaultUpdatePageUrl = QStringLiteral("https://github.com/kakuyo1/glassNote/releases/latest");
+
+#ifdef Q_OS_WIN
+const auto kWindowsRunKeyPath = QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+const auto kWindowsRunValueName = QStringLiteral("glassNote");
+
+QString startupCommandForCurrentExecutable() {
+    const QString executablePath = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+    return QStringLiteral("\"%1\"").arg(executablePath);
+}
+
+QString startupCommandExecutablePath(const QString &command) {
+    const QString trimmed = command.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+
+    if (trimmed.startsWith(QLatin1Char('"'))) {
+        const int endQuote = trimmed.indexOf(QLatin1Char('"'), 1);
+        if (endQuote > 1) {
+            return trimmed.mid(1, endQuote - 1);
+        }
+    }
+
+    const int firstSpace = trimmed.indexOf(QLatin1Char(' '));
+    return firstSpace > 0 ? trimmed.left(firstSpace) : trimmed;
+}
+
+bool launchAtStartupEnabledForCurrentExecutable() {
+    QSettings settings(kWindowsRunKeyPath, QSettings::NativeFormat);
+    const QString configuredCommand = settings.value(kWindowsRunValueName).toString();
+    if (configuredCommand.trimmed().isEmpty()) {
+        return false;
+    }
+
+    const QString configuredExecutable = QDir::fromNativeSeparators(
+        startupCommandExecutablePath(configuredCommand));
+    const QString currentExecutable = QDir::fromNativeSeparators(QCoreApplication::applicationFilePath());
+    if (configuredExecutable.isEmpty()) {
+        return false;
+    }
+
+    return QFileInfo(configuredExecutable).absoluteFilePath().compare(
+               QFileInfo(currentExecutable).absoluteFilePath(),
+               Qt::CaseInsensitive) == 0;
+}
+
+bool setLaunchAtStartupEnabledForCurrentExecutable(bool enabled, QString *errorMessage) {
+    QSettings settings(kWindowsRunKeyPath, QSettings::NativeFormat);
+    if (enabled) {
+        settings.setValue(kWindowsRunValueName, startupCommandForCurrentExecutable());
+    } else {
+        settings.remove(kWindowsRunValueName);
+    }
+    settings.sync();
+
+    if (settings.status() != QSettings::NoError) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("写入开机启动配置失败。请检查系统权限。");
+        }
+        return false;
+    }
+
+    const bool actualEnabled = launchAtStartupEnabledForCurrentExecutable();
+    if (actualEnabled != enabled) {
+        if (errorMessage != nullptr) {
+            *errorMessage = enabled
+                                ? QStringLiteral("开机自启设置未生效，请稍后重试。")
+                                : QStringLiteral("取消开机自启未生效，请稍后重试。");
+        }
+        return false;
+    }
+
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    return true;
+}
+#endif
+
+struct UpdateManifestPayload {
+    QString version;
+    QString notes;
+    QUrl releasePageUrl;
+    QUrl installerUrl;
+    QString installerSha256;
+    qint64 installerSize = 0;
+};
+
+bool isSha256Hex(const QString &value) {
+    if (value.size() != 64) {
+        return false;
+    }
+
+    for (QChar ch : value) {
+        const ushort code = ch.unicode();
+        const bool isDigit = code >= '0' && code <= '9';
+        const bool isLowerHex = code >= 'a' && code <= 'f';
+        const bool isUpperHex = code >= 'A' && code <= 'F';
+        if (!isDigit && !isLowerHex && !isUpperHex) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+QString configuredUpdateManifestUrl() {
+    const QString overrideValue = qEnvironmentVariable("GLASSNOTE_UPDATE_MANIFEST_URL").trimmed();
+    return overrideValue.isEmpty() ? kDefaultUpdateManifestUrl : overrideValue;
+}
+
+QString normalizedVersionToken(const QString &value) {
+    QString token = value.trimmed();
+    if (token.startsWith(QLatin1Char('v'), Qt::CaseInsensitive)) {
+        token = token.mid(1);
+    }
+    return token;
+}
+
+QVector<int> versionSegments(const QString &version) {
+    QVector<int> segments;
+    const QString normalized = normalizedVersionToken(version);
+    const QStringList parts = normalized.split(QLatin1Char('.'), Qt::SkipEmptyParts);
+    segments.reserve(parts.size());
+    for (const QString &part : parts) {
+        int numeric = 0;
+        bool hasDigit = false;
+        for (QChar ch : part) {
+            if (!ch.isDigit()) {
+                break;
+            }
+            hasDigit = true;
+            numeric = (numeric * 10) + ch.digitValue();
+        }
+        segments.append(hasDigit ? numeric : 0);
+    }
+    return segments;
+}
+
+int compareVersionStrings(const QString &left, const QString &right) {
+    const QVector<int> leftSegments = versionSegments(left);
+    const QVector<int> rightSegments = versionSegments(right);
+    const int segmentCount = qMax(leftSegments.size(), rightSegments.size());
+    for (int index = 0; index < segmentCount; ++index) {
+        const int lhs = index < leftSegments.size() ? leftSegments.at(index) : 0;
+        const int rhs = index < rightSegments.size() ? rightSegments.at(index) : 0;
+        if (lhs < rhs) {
+            return -1;
+        }
+        if (lhs > rhs) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+QUrl manifestUrlValue(const QJsonObject &root,
+                      const QString &primaryKey,
+                      const QString &secondaryKey = QString()) {
+    const QString value = root.value(primaryKey).toString().trimmed();
+    if (!value.isEmpty()) {
+        return QUrl(value);
+    }
+    if (!secondaryKey.isEmpty()) {
+        const QString fallbackValue = root.value(secondaryKey).toString().trimmed();
+        if (!fallbackValue.isEmpty()) {
+            return QUrl(fallbackValue);
+        }
+    }
+    return QUrl();
+}
+
+QString manifestNotesValue(const QJsonObject &root) {
+    const QJsonValue notesValue = root.value(QStringLiteral("notes"));
+    if (notesValue.isString()) {
+        return notesValue.toString().trimmed();
+    }
+
+    if (notesValue.isArray()) {
+        QStringList lines;
+        const QJsonArray entries = notesValue.toArray();
+        lines.reserve(entries.size());
+        for (const QJsonValue &entry : entries) {
+            const QString text = entry.toString().trimmed();
+            if (!text.isEmpty()) {
+                lines.append(text);
+            }
+        }
+        return lines.join(QLatin1Char('\n'));
+    }
+
+    return QString();
+}
+
+bool parseUpdateManifestPayload(const QByteArray &payload,
+                                UpdateManifestPayload *manifest,
+                                QString *errorMessage) {
+    if (manifest == nullptr) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("更新数据解析目标为空。");
+        }
+        return false;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("更新数据格式无效：%1").arg(parseError.errorString());
+        }
+        return false;
+    }
+
+    const QJsonObject root = document.object();
+    const QString remoteVersion = root.value(QStringLiteral("version")).toString().trimmed();
+    if (remoteVersion.isEmpty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("更新数据缺少版本号。");
+        }
+        return false;
+    }
+
+    const QString normalizedRemoteVersion = normalizedVersionToken(remoteVersion);
+    if (normalizedRemoteVersion.isEmpty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("更新版本号格式无效。");
+        }
+        return false;
+    }
+
+    QUrl releaseUrl = manifestUrlValue(root, QStringLiteral("releasePageUrl"), QStringLiteral("downloadUrl"));
+
+    const QJsonObject windowsObject = root.value(QStringLiteral("windows")).toObject();
+    const QJsonObject x64Object = windowsObject.value(QStringLiteral("x64")).toObject();
+
+    QString installerUrlText = x64Object.value(QStringLiteral("installerUrl")).toString().trimmed();
+    if (installerUrlText.isEmpty()) {
+        installerUrlText = root.value(QStringLiteral("installerUrl")).toString().trimmed();
+    }
+
+    if (installerUrlText.isEmpty()) {
+        const QString legacyDownloadUrl = root.value(QStringLiteral("downloadUrl")).toString().trimmed();
+        if (legacyDownloadUrl.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) {
+            installerUrlText = legacyDownloadUrl;
+        }
+    }
+
+    QUrl installerUrl;
+    if (!installerUrlText.isEmpty()) {
+        installerUrl = QUrl(installerUrlText);
+        if (!installerUrl.isValid()
+            || installerUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QStringLiteral("安装包链接无效（仅支持 HTTPS）。");
+            }
+            return false;
+        }
+    }
+
+    QString installerSha256 = x64Object.value(QStringLiteral("sha256")).toString().trimmed().toLower();
+    if (installerSha256.isEmpty()) {
+        installerSha256 = root.value(QStringLiteral("sha256")).toString().trimmed().toLower();
+    }
+
+    if (!installerSha256.isEmpty() && !isSha256Hex(installerSha256)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("安装包 SHA256 格式无效。");
+        }
+        return false;
+    }
+
+    qint64 installerSize = static_cast<qint64>(x64Object.value(QStringLiteral("size")).toDouble(0.0));
+    if (installerSize <= 0) {
+        installerSize = static_cast<qint64>(root.value(QStringLiteral("size")).toDouble(0.0));
+    }
+
+    if ((!releaseUrl.isValid() || releaseUrl.isEmpty()) && installerUrl.isValid()) {
+        releaseUrl = installerUrl;
+    }
+
+    if (!releaseUrl.isValid() || releaseUrl.isEmpty()) {
+        releaseUrl = QUrl(kDefaultUpdatePageUrl);
+    }
+
+    if (!releaseUrl.isValid() || releaseUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("更新链接无效（仅支持 HTTPS）。");
+        }
+        return false;
+    }
+
+    manifest->version = normalizedRemoteVersion;
+    manifest->notes = manifestNotesValue(root);
+    manifest->releasePageUrl = releaseUrl;
+    manifest->installerUrl = installerUrl;
+    manifest->installerSha256 = installerSha256;
+    manifest->installerSize = installerSize > 0 ? installerSize : 0;
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+    return true;
+}
 
 bool hasMeaningfulText(const QString &text) {
     QTextDocument document;
@@ -361,6 +684,7 @@ AppController::AppController(QObject *parent)
     m_autoSaveCoordinator = new AutoSaveCoordinator(this);
     m_storageFileWatcher = new QFileSystemWatcher(this);
     m_reminderTimer = new QTimer(this);
+    m_updateNetworkManager = new QNetworkAccessManager(this);
     m_reminderTimer->setSingleShot(true);
 
     connect(m_autoSaveCoordinator, &AutoSaveCoordinator::saveRequested, this, &AppController::saveState);
@@ -394,6 +718,11 @@ void AppController::initialize() {
     ensureAtLeastOneNote();
     m_clipboardInboxEnabled = m_state.clipboardInboxEnabled;
     m_ocrExperimentalEnabled = m_state.ocrExperimentalEnabled;
+#ifdef Q_OS_WIN
+    m_state.launchAtStartup = launchAtStartupEnabledForCurrentExecutable();
+#else
+    m_state.launchAtStartup = false;
+#endif
 
     m_mainWindow = new MainWindow();
     initializeSystemTray();
@@ -431,6 +760,18 @@ void AppController::initialize() {
             &AppController::handleRestoreLatestBackupRequested);
     connect(m_mainWindow, &MainWindow::externalFileSyncToggled, this, &AppController::handleExternalFileSyncToggled);
     connect(m_mainWindow, &MainWindow::alwaysOnTopToggled, this, &AppController::handleAlwaysOnTopToggled);
+    connect(m_mainWindow,
+            &MainWindow::launchAtStartupToggled,
+            this,
+            &AppController::handleLaunchAtStartupToggled);
+    connect(m_mainWindow,
+            &MainWindow::autoCheckUpdatesToggled,
+            this,
+            &AppController::handleAutoCheckUpdatesToggled);
+    connect(m_mainWindow,
+            &MainWindow::checkForUpdatesRequested,
+            this,
+            &AppController::handleCheckForUpdatesRequested);
     connect(m_mainWindow, &MainWindow::windowLockToggled, this, &AppController::handleWindowLockToggled);
     connect(m_mainWindow, &MainWindow::reminderSetRequested, this, &AppController::handleReminderSetRequested);
     connect(m_mainWindow,
@@ -459,6 +800,7 @@ void AppController::initialize() {
     updateTrayMenuText();
     scheduleNextReminder();
     showLoadRecoveryMessage(loadResult, false);
+    scheduleAutomaticUpdateCheck();
 }
 
 NoteItem AppController::createEmptyNote(int order) const {
@@ -483,6 +825,8 @@ void AppController::refreshWindow() {
     m_mainWindow->setUiStyle(m_state.uiStyle);
     m_mainWindow->setBaseLayerOpacity(m_state.baseLayerOpacity);
     m_mainWindow->setAlwaysOnTopEnabled(m_state.alwaysOnTop);
+    m_mainWindow->setLaunchAtStartupEnabled(m_state.launchAtStartup);
+    m_mainWindow->setAutoCheckUpdatesEnabled(m_state.autoCheckUpdates);
     m_mainWindow->setWindowLocked(m_state.windowLocked);
     m_mainWindow->setNotes(m_state.notes);
 }
@@ -915,6 +1259,424 @@ void AppController::handleAlwaysOnTopToggled(bool enabled) {
     m_autoSaveCoordinator->requestSave();
 }
 
+void AppController::handleLaunchAtStartupToggled(bool enabled) {
+#ifdef Q_OS_WIN
+    QString errorMessage;
+    if (!setLaunchAtStartupEnabledForCurrentExecutable(enabled, &errorMessage)) {
+        qCWarning(lcAppController) << "set launch at startup failed" << errorMessage;
+        m_state.launchAtStartup = launchAtStartupEnabledForCurrentExecutable();
+        refreshWindow();
+        if (m_mainWindow != nullptr) {
+            QMessageBox::warning(m_mainWindow,
+                                 QStringLiteral("开机自启设置失败"),
+                                 errorMessage.isEmpty()
+                                     ? QStringLiteral("无法更新开机自启状态，请稍后重试。")
+                                     : errorMessage);
+        }
+        return;
+    }
+
+    m_state.launchAtStartup = launchAtStartupEnabledForCurrentExecutable();
+    refreshWindow();
+    m_autoSaveCoordinator->requestSave();
+#else
+    Q_UNUSED(enabled)
+    m_state.launchAtStartup = false;
+    refreshWindow();
+    if (m_mainWindow != nullptr) {
+        QMessageBox::information(m_mainWindow,
+                                 QStringLiteral("开机自启"),
+                                 QStringLiteral("当前平台暂不支持开机自启设置。"));
+    }
+#endif
+}
+
+void AppController::handleAutoCheckUpdatesToggled(bool enabled) {
+    if (m_state.autoCheckUpdates == enabled) {
+        return;
+    }
+
+    m_state.autoCheckUpdates = enabled;
+    refreshWindow();
+    m_autoSaveCoordinator->requestSave();
+
+    if (enabled) {
+        scheduleAutomaticUpdateCheck();
+    }
+}
+
+void AppController::handleCheckForUpdatesRequested() {
+    requestUpdateCheck(true);
+}
+
+void AppController::scheduleAutomaticUpdateCheck() {
+    if (!m_state.autoCheckUpdates) {
+        return;
+    }
+
+    QTimer::singleShot(10 * 1000, this, [this]() {
+        requestUpdateCheck(false);
+    });
+}
+
+void AppController::requestUpdateCheck(bool manual) {
+    if (m_updateNetworkManager == nullptr) {
+        if (manual && m_mainWindow != nullptr) {
+            QMessageBox::warning(m_mainWindow,
+                                 QStringLiteral("检查更新失败"),
+                                 QStringLiteral("更新服务未初始化，请重启后重试。"));
+        }
+        return;
+    }
+
+    if (m_updateCheckInProgress) {
+        if (manual && m_mainWindow != nullptr) {
+            QMessageBox::information(m_mainWindow,
+                                     QStringLiteral("检查更新"),
+                                     QStringLiteral("正在检查更新，请稍候。"));
+        }
+        return;
+    }
+
+    const qint64 nowEpochMsec = QDateTime::currentMSecsSinceEpoch();
+    if (!manual && (nowEpochMsec - m_state.lastUpdateCheckEpochMsec) < kAutoUpdateCheckMinIntervalMsec) {
+        return;
+    }
+
+    const QUrl manifestUrl(configuredUpdateManifestUrl());
+    if (!manifestUrl.isValid() || manifestUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0) {
+        qCWarning(lcAppController) << "invalid update manifest url" << manifestUrl;
+        if (manual && m_mainWindow != nullptr) {
+            QMessageBox::warning(m_mainWindow,
+                                 QStringLiteral("检查更新失败"),
+                                 QStringLiteral("更新地址配置无效（仅支持 HTTPS）。"));
+        }
+        return;
+    }
+
+    m_updateCheckInProgress = true;
+    m_state.lastUpdateCheckEpochMsec = nowEpochMsec;
+    m_autoSaveCoordinator->requestSave();
+
+    QNetworkRequest request(manifestUrl);
+    const QString appVersion = normalizedVersionToken(QCoreApplication::applicationVersion());
+    request.setHeader(QNetworkRequest::UserAgentHeader,
+                      QStringLiteral("glassNote/%1").arg(appVersion.isEmpty() ? QStringLiteral("dev") : appVersion));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    QNetworkReply *reply = m_updateNetworkManager->get(request);
+    reply->setProperty("manualCheck", manual);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const bool manualCheck = reply->property("manualCheck").toBool();
+        m_updateCheckInProgress = false;
+
+        if (reply->error() != QNetworkReply::NoError) {
+            qCWarning(lcAppController) << "update check network error" << reply->errorString();
+            if (manualCheck && m_mainWindow != nullptr) {
+                QMessageBox::warning(m_mainWindow,
+                                     QStringLiteral("检查更新失败"),
+                                     QStringLiteral("请求更新信息失败：%1").arg(reply->errorString()));
+            }
+            reply->deleteLater();
+            return;
+        }
+
+        UpdateManifestPayload manifest;
+        QString parseError;
+        if (!parseUpdateManifestPayload(reply->readAll(), &manifest, &parseError)) {
+            qCWarning(lcAppController) << "update manifest parse error" << parseError;
+            if (manualCheck && m_mainWindow != nullptr) {
+                QMessageBox::warning(m_mainWindow,
+                                     QStringLiteral("检查更新失败"),
+                                     QStringLiteral("更新信息解析失败：%1").arg(parseError));
+            }
+            reply->deleteLater();
+            return;
+        }
+
+        const QString currentVersion = normalizedVersionToken(QCoreApplication::applicationVersion());
+        const QString localVersion = currentVersion.isEmpty() ? QStringLiteral("0.0.0") : currentVersion;
+        const int versionCompare = compareVersionStrings(localVersion, manifest.version);
+        if (versionCompare >= 0) {
+            if (manualCheck && m_mainWindow != nullptr) {
+                QMessageBox::information(m_mainWindow,
+                                         QStringLiteral("检查更新"),
+                                         QStringLiteral("当前已是最新版本（%1）。").arg(localVersion));
+            }
+            reply->deleteLater();
+            return;
+        }
+
+        if (!manualCheck && m_state.ignoredUpdateVersion == manifest.version) {
+            qCInfo(lcAppController) << "skip ignored update version" << manifest.version;
+            reply->deleteLater();
+            return;
+        }
+
+        if (m_mainWindow == nullptr) {
+            reply->deleteLater();
+            return;
+        }
+
+        QMessageBox dialog(m_mainWindow);
+        dialog.setIcon(QMessageBox::Information);
+        dialog.setWindowTitle(QStringLiteral("发现新版本"));
+        dialog.setText(QStringLiteral("检测到新版本：%1（当前 %2）")
+                           .arg(manifest.version, localVersion));
+
+        QString informativeText;
+        if (m_state.ignoredUpdateVersion == manifest.version) {
+            informativeText = QStringLiteral("该版本此前已被忽略。\n");
+        }
+        const bool canDownloadInApp = manifest.installerUrl.isValid() && !manifest.installerSha256.isEmpty();
+        informativeText += canDownloadInApp
+                               ? QStringLiteral("可直接在应用内下载更新包，完成 SHA256 校验后启动安装器。")
+                               : QStringLiteral("该版本未提供应用内安装信息，点击“前往下载页”可手动更新。");
+        if (!manifest.notes.isEmpty()) {
+            informativeText += QStringLiteral("\n\n更新说明：\n%1").arg(manifest.notes);
+        }
+        dialog.setInformativeText(informativeText);
+
+        QPushButton *downloadInstallButton = nullptr;
+        if (canDownloadInApp) {
+            downloadInstallButton = dialog.addButton(QStringLiteral("下载并安装"), QMessageBox::AcceptRole);
+        }
+        QPushButton *openPageButton = dialog.addButton(QStringLiteral("前往下载页"), QMessageBox::ActionRole);
+        QPushButton *ignoreButton = dialog.addButton(QStringLiteral("忽略此版本"), QMessageBox::DestructiveRole);
+        dialog.addButton(QStringLiteral("稍后"), QMessageBox::RejectRole);
+        dialog.exec();
+
+        QAbstractButton *clicked = dialog.clickedButton();
+        if (downloadInstallButton != nullptr
+            && clicked == static_cast<QAbstractButton *>(downloadInstallButton)) {
+            reply->deleteLater();
+            downloadAndInstallUpdate(manifest.version, manifest.installerUrl, manifest.installerSha256);
+            return;
+        }
+
+        if (clicked == static_cast<QAbstractButton *>(openPageButton)) {
+            QDesktopServices::openUrl(manifest.releasePageUrl);
+            reply->deleteLater();
+            return;
+        }
+
+        if (clicked == static_cast<QAbstractButton *>(ignoreButton)) {
+            m_state.ignoredUpdateVersion = manifest.version;
+            m_autoSaveCoordinator->requestSave();
+        }
+
+        reply->deleteLater();
+    });
+}
+
+void AppController::downloadAndInstallUpdate(const QString &version,
+                                             const QUrl &installerUrl,
+                                             const QString &expectedSha256) {
+    if (m_mainWindow == nullptr || m_updateNetworkManager == nullptr) {
+        return;
+    }
+
+    const QString normalizedExpectedSha256 = expectedSha256.trimmed().toLower();
+    if (!installerUrl.isValid()
+        || installerUrl.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0
+        || !isSha256Hex(normalizedExpectedSha256)) {
+        QMessageBox::warning(m_mainWindow,
+                             QStringLiteral("下载安装失败"),
+                             QStringLiteral("安装包链接或校验信息无效。"));
+        return;
+    }
+
+    QString tempBasePath = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    if (tempBasePath.trimmed().isEmpty()) {
+        tempBasePath = QDir::tempPath();
+    }
+
+    const QDir tempBaseDir(tempBasePath);
+    const QString updateDirPath = tempBaseDir.filePath(QStringLiteral("glassNote-updater"));
+    QDir updateDir(updateDirPath);
+    if (!updateDir.exists() && !updateDir.mkpath(QStringLiteral("."))) {
+        QMessageBox::warning(m_mainWindow,
+                             QStringLiteral("下载安装失败"),
+                             QStringLiteral("无法创建更新缓存目录。"));
+        return;
+    }
+
+    QString safeVersion = normalizedVersionToken(version);
+    if (safeVersion.isEmpty()) {
+        safeVersion = QStringLiteral("latest");
+    }
+    for (QChar &ch : safeVersion) {
+        if (!(ch.isDigit() || ch == QLatin1Char('.') || ch == QLatin1Char('-') || ch == QLatin1Char('_'))) {
+            ch = QLatin1Char('_');
+        }
+    }
+
+    const QString installerFileName = QStringLiteral("glassNote-%1-win64-setup.exe").arg(safeVersion);
+    const QString installerPath = updateDir.filePath(installerFileName);
+    QFile::remove(installerPath);
+
+    QNetworkRequest request(installerUrl);
+    const QString appVersion = normalizedVersionToken(QCoreApplication::applicationVersion());
+    request.setHeader(QNetworkRequest::UserAgentHeader,
+                      QStringLiteral("glassNote/%1 updater").arg(appVersion.isEmpty() ? QStringLiteral("dev") : appVersion));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    QNetworkReply *reply = m_updateNetworkManager->get(request);
+    auto *downloadFile = new QSaveFile(installerPath, reply);
+    if (!downloadFile->open(QIODevice::WriteOnly)) {
+        const QString errorMessage = downloadFile->errorString();
+        delete downloadFile;
+        reply->abort();
+        reply->deleteLater();
+        QMessageBox::warning(m_mainWindow,
+                             QStringLiteral("下载安装失败"),
+                             QStringLiteral("无法写入更新文件：%1").arg(errorMessage));
+        return;
+    }
+
+    auto downloadHash = std::make_shared<QCryptographicHash>(QCryptographicHash::Sha256);
+    auto *progressDialog = new QProgressDialog(QStringLiteral("正在下载更新包 %1 ...").arg(safeVersion),
+                                               QStringLiteral("取消"),
+                                               0,
+                                               100,
+                                               m_mainWindow);
+    progressDialog->setWindowTitle(QStringLiteral("下载更新"));
+    progressDialog->setWindowModality(Qt::WindowModal);
+    progressDialog->setMinimumDuration(0);
+    progressDialog->setAutoClose(false);
+    progressDialog->setAutoReset(false);
+    progressDialog->setValue(0);
+    progressDialog->show();
+
+    connect(progressDialog, &QProgressDialog::canceled, reply, [reply]() {
+        reply->abort();
+    });
+
+    connect(reply, &QNetworkReply::readyRead, reply, [reply, downloadFile, downloadHash]() {
+        const QByteArray chunk = reply->readAll();
+        if (chunk.isEmpty()) {
+            return;
+        }
+
+        downloadHash->addData(chunk);
+        const qint64 written = downloadFile->write(chunk);
+        if (written != chunk.size()) {
+            reply->setProperty("writeFailed", true);
+            reply->setProperty("writeError", downloadFile->errorString());
+            reply->abort();
+        }
+    });
+
+    connect(reply, &QNetworkReply::downloadProgress, progressDialog, [progressDialog](qint64 received, qint64 total) {
+        if (total > 0) {
+            const int percent = static_cast<int>((received * 100) / total);
+            if (progressDialog->maximum() != 100) {
+                progressDialog->setRange(0, 100);
+            }
+            progressDialog->setValue(qBound(0, percent, 100));
+        } else {
+            progressDialog->setRange(0, 0);
+        }
+    });
+
+    connect(reply, &QNetworkReply::finished, this, [this,
+                                                     reply,
+                                                     downloadFile,
+                                                     downloadHash,
+                                                     progressDialog,
+                                                     installerPath,
+                                                     normalizedExpectedSha256]() {
+        const bool writeFailed = reply->property("writeFailed").toBool();
+        const bool canceled = progressDialog->wasCanceled() || reply->error() == QNetworkReply::OperationCanceledError;
+
+        if (reply->error() != QNetworkReply::NoError || writeFailed) {
+            downloadFile->cancelWriting();
+            QFile::remove(installerPath);
+
+            if (!canceled && m_mainWindow != nullptr) {
+                const QString writeError = reply->property("writeError").toString().trimmed();
+                const QString detail = writeFailed
+                                           ? (writeError.isEmpty()
+                                                  ? QStringLiteral("写入安装包文件失败。")
+                                                  : QStringLiteral("写入安装包失败：%1").arg(writeError))
+                                           : QStringLiteral("下载更新包失败：%1").arg(reply->errorString());
+                QMessageBox::warning(m_mainWindow,
+                                     QStringLiteral("下载安装失败"),
+                                     detail);
+            }
+
+            progressDialog->deleteLater();
+            reply->deleteLater();
+            return;
+        }
+
+        if (!downloadFile->commit()) {
+            const QString commitError = downloadFile->errorString();
+            QFile::remove(installerPath);
+            if (m_mainWindow != nullptr) {
+                QMessageBox::warning(m_mainWindow,
+                                     QStringLiteral("下载安装失败"),
+                                     QStringLiteral("保存安装包失败：%1").arg(commitError));
+            }
+            progressDialog->deleteLater();
+            reply->deleteLater();
+            return;
+        }
+
+        const QString actualSha256 = QString::fromLatin1(downloadHash->result().toHex()).toLower();
+        if (actualSha256 != normalizedExpectedSha256) {
+            QFile::remove(installerPath);
+            if (m_mainWindow != nullptr) {
+                QMessageBox::warning(m_mainWindow,
+                                     QStringLiteral("校验失败"),
+                                     QStringLiteral("安装包 SHA256 校验失败，已删除下载文件。\n期望：%1\n实际：%2")
+                                         .arg(normalizedExpectedSha256, actualSha256));
+            }
+            progressDialog->deleteLater();
+            reply->deleteLater();
+            return;
+        }
+
+        progressDialog->setRange(0, 100);
+        progressDialog->setValue(100);
+        progressDialog->deleteLater();
+
+        if (m_mainWindow == nullptr) {
+            reply->deleteLater();
+            return;
+        }
+
+        const auto installChoice = QMessageBox::question(
+            m_mainWindow,
+            QStringLiteral("更新包已下载"),
+            QStringLiteral("更新包已下载并校验完成，是否立即启动安装器？\n%1")
+                .arg(QDir::toNativeSeparators(installerPath)),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::Yes);
+
+        if (installChoice != QMessageBox::Yes) {
+            reply->deleteLater();
+            return;
+        }
+
+        const bool started = QProcess::startDetached(QDir::toNativeSeparators(installerPath),
+                                                     QStringList(),
+                                                     QFileInfo(installerPath).absolutePath());
+        if (!started) {
+            QMessageBox::warning(m_mainWindow,
+                                 QStringLiteral("启动安装器失败"),
+                                 QStringLiteral("无法启动更新安装器，请手动运行：\n%1")
+                                     .arg(QDir::toNativeSeparators(installerPath)));
+            reply->deleteLater();
+            return;
+        }
+
+        reply->deleteLater();
+        quitApplication();
+    });
+}
+
 void AppController::handleWindowLockToggled(bool enabled) {
     m_state.windowLocked = enabled;
     if (m_mainWindow != nullptr) {
@@ -1289,6 +2051,7 @@ void AppController::initializeSystemTray() {
     toggleVisibilityAction->setObjectName(QStringLiteral("trayToggleVisibilityAction"));
     QAction *quickAddAction = m_trayMenu->addAction(QStringLiteral("快速新建事项"));
     QAction *quickCaptureAction = m_trayMenu->addAction(QStringLiteral("极速捕获（Ctrl+Alt+Q）"));
+    QAction *checkUpdatesAction = m_trayMenu->addAction(QStringLiteral("检查更新..."));
     m_trayClipboardImportAction = m_trayMenu->addAction(QStringLiteral("导入剪贴板收集箱（暂无内容）"));
     m_trayClipboardImportAction->setObjectName(QStringLiteral("trayClipboardImportAction"));
     m_trayMenu->addSeparator();
@@ -1317,6 +2080,7 @@ void AppController::initializeSystemTray() {
         updateTrayMenuText();
     });
     connect(quickCaptureAction, &QAction::triggered, this, &AppController::handleQuickCaptureRequested);
+    connect(checkUpdatesAction, &QAction::triggered, this, &AppController::handleCheckForUpdatesRequested);
     connect(m_trayClipboardImportAction,
             &QAction::triggered,
             this,

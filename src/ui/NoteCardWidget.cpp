@@ -464,6 +464,14 @@ void NoteCardWidget::setAlwaysOnTopEnabled(bool enabled) {
     m_alwaysOnTopEnabled = enabled;
 }
 
+void NoteCardWidget::setLaunchAtStartupEnabled(bool enabled) {
+    m_launchAtStartupEnabled = enabled;
+}
+
+void NoteCardWidget::setAutoCheckUpdatesEnabled(bool enabled) {
+    m_autoCheckUpdatesEnabled = enabled;
+}
+
 void NoteCardWidget::setWindowLocked(bool enabled) {
     m_windowLocked = enabled;
     if (enabled) {
@@ -697,6 +705,11 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
     QAction *fileSyncAction = dataMenu->addAction(QStringLiteral("监听外部文件变更"));
     fileSyncAction->setCheckable(true);
     fileSyncAction->setChecked(m_externalFileSyncEnabled);
+    dataMenu->addSeparator();
+    QAction *checkUpdatesAction = dataMenu->addAction(QStringLiteral("检查更新..."));
+    QAction *autoCheckUpdatesAction = dataMenu->addAction(QStringLiteral("启动时自动检查更新"));
+    autoCheckUpdatesAction->setCheckable(true);
+    autoCheckUpdatesAction->setChecked(m_autoCheckUpdatesEnabled);
 
     menu.addSeparator();
     QMenu *efficiencyMenu = menu.addMenu(QStringLiteral("效率功能"));
@@ -704,6 +717,9 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
     QAction *alwaysOnTopAction = efficiencyMenu->addAction(QStringLiteral("窗口置顶"));
     alwaysOnTopAction->setCheckable(true);
     alwaysOnTopAction->setChecked(m_alwaysOnTopEnabled);
+    QAction *launchAtStartupAction = efficiencyMenu->addAction(QStringLiteral("开机自启"));
+    launchAtStartupAction->setCheckable(true);
+    launchAtStartupAction->setChecked(m_launchAtStartupEnabled);
     QAction *windowLockAction = efficiencyMenu->addAction(QStringLiteral("锁定窗口位置与尺寸"));
     windowLockAction->setCheckable(true);
     windowLockAction->setChecked(m_windowLocked);
@@ -848,9 +864,26 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
         return;
     }
 
+    if (chosen == checkUpdatesAction) {
+        emit checkForUpdatesRequested();
+        return;
+    }
+
+    if (chosen == autoCheckUpdatesAction) {
+        m_autoCheckUpdatesEnabled = autoCheckUpdatesAction->isChecked();
+        emit autoCheckUpdatesToggled(m_autoCheckUpdatesEnabled);
+        return;
+    }
+
     if (chosen == alwaysOnTopAction) {
         m_alwaysOnTopEnabled = alwaysOnTopAction->isChecked();
         emit alwaysOnTopToggled(m_alwaysOnTopEnabled);
+        return;
+    }
+
+    if (chosen == launchAtStartupAction) {
+        m_launchAtStartupEnabled = launchAtStartupAction->isChecked();
+        emit launchAtStartupToggled(m_launchAtStartupEnabled);
         return;
     }
 

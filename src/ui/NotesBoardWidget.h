@@ -30,6 +30,8 @@ public:
     void setUiStyle(UiStyle uiStyle);
     void setExternalFileSyncEnabled(bool enabled);
     void setAlwaysOnTopEnabled(bool enabled);
+    void setLaunchAtStartupEnabled(bool enabled);
+    void setAutoCheckUpdatesEnabled(bool enabled);
     void setWindowLocked(bool enabled);
 
 signals:
@@ -47,7 +49,10 @@ signals:
     void restoreLatestBackupRequested();
     void externalFileSyncToggled(bool enabled);
     void alwaysOnTopToggled(bool enabled);
+    void launchAtStartupToggled(bool enabled);
+    void autoCheckUpdatesToggled(bool enabled);
     void windowLockToggled(bool enabled);
+    void checkForUpdatesRequested();
     void reminderSetRequested(const QString &noteId);
     void reminderClearedRequested(const QString &noteId);
     void timelineReplayRequested();
@@ -72,6 +77,8 @@ private:
     UiStyle m_uiStyle = UiStyle::Glass;
     bool m_externalFileSyncEnabled = true;
     bool m_alwaysOnTopEnabled = false;
+    bool m_launchAtStartupEnabled = false;
+    bool m_autoCheckUpdatesEnabled = true;
     bool m_windowLocked = false;
     bool m_deleteAnimationRunning = false;
 };

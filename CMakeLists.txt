@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Test Network)
 
 qt_add_executable(glassNote
     src/main.cpp
@@ -39,9 +39,40 @@ qt_add_executable(glassNote
     src/ui/NotesBoardWidget.h
 )
 
-target_link_libraries(glassNote PRIVATE Qt6::Widgets)
+target_link_libraries(glassNote PRIVATE Qt6::Widgets Qt6::Network)
+target_compile_definitions(glassNote PRIVATE GLASSNOTE_APP_VERSION="${PROJECT_VERSION}")
 
 target_include_directories(glassNote PRIVATE src)
+
+include(GNUInstallDirs)
+
+install(TARGETS glassNote
+    RUNTIME DESTINATION .
+    BUNDLE DESTINATION .
+)
+
+install(FILES README.md DESTINATION .)
+
+if(WIN32)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(GLASSNOTE_PACKAGE_ARCH "win64")
+    else()
+        set(GLASSNOTE_PACKAGE_ARCH "win32")
+    endif()
+else()
+    set(GLASSNOTE_PACKAGE_ARCH "${CMAKE_SYSTEM_NAME}")
+endif()
+
+set(CPACK_PACKAGE_NAME "glassNote")
+set(CPACK_PACKAGE_VENDOR "glassNote")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "A lightweight transparent sticky notes desktop app")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "glassNote")
+set(CPACK_PACKAGE_FILE_NAME "glassNote-${PROJECT_VERSION}-${GLASSNOTE_PACKAGE_ARCH}-portable")
+set(CPACK_MONOLITHIC_INSTALL ON)
+set(CPACK_GENERATOR "ZIP")
+
+include(CPack)
 
 if(WIN32)
     set_target_properties(glassNote PROPERTIES WIN32_EXECUTABLE TRUE)

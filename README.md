@@ -20,6 +20,7 @@
 - 剪贴板收集箱（检测新复制文本，一键导入）
 - 窗口边缘拖拽捕获（文本/文件/图像占位）
 - OCR 实验开关与入口（默认关闭）
+- 更新检查（Manifest 阶段：检查 / 提示 / 忽略版本）
 
 ## 当前交互说明
 
@@ -29,6 +30,7 @@
 - 全局热键 `Ctrl+Alt+N`：快速新建事项
 - 全局热键 `Ctrl+Alt+Q`：打开极速输入条并直接创建事项
 - 托盘菜单支持：剪贴板收集箱导入、收集箱开关、OCR 实验开关/入口
+- 右键菜单与托盘菜单支持“检查更新...”，并可设置“启动时自动检查更新”
 - 将文本或图片拖拽到窗口边缘可快速捕获为事项
 
 ## 数据文件位置
@@ -44,6 +46,7 @@
 - Qt 6 Widgets
 - CMake 3.21+
 - MSVC 2022
+- Inno Setup 6（生成 `setup.exe`）
 
 ### 示例命令
 
@@ -53,6 +56,130 @@ cmake --build B:\glassNote\build --config Debug
 ```
 
 可执行文件示例位置：`B:\glassNote\build\Debug\glassNote.exe`
+
+## 生成安装包（Windows）
+
+项目提供一键打包脚本：`scripts\package_release.bat`。
+
+### 前置要求
+
+- `iscc`（Inno Setup 编译器）在 `PATH` 中可用
+- `windeployqt` 可用（脚本默认使用 `B:\qtt\6.9.0\msvc2022_64\bin\windeployqt.exe`）
+
+### 示例命令
+
+```bat
+B:\glassNote\scripts\package_release.bat 0.1.0
+```
+
+如需在失败时保留窗口便于排查，可附加参数：
+
+```bat
+B:\glassNote\scripts\package_release.bat 0.1.0 --pause
+```
+
+脚本会自动完成：
+
+- `Release` 构建
+- 安装到 staging 目录（`build-release\stage`）
+- Qt 运行时依赖拷贝（`windeployqt`）
+- 便携包 ZIP 生成（`CPack`）
+- 安装包 EXE 生成（Inno Setup）
+- 安装包 SHA256 计算
+- `update-manifest.json` 自动生成
+
+输出目录：`B:\glassNote\dist`
+
+- `glassNote-<version>-win64-setup.exe`
+- `glassNote-<version>-win64-portable.zip`
+- `update-manifest.json`
+- `update-manifest-<version>.json`
+- `package_release.log`（完整打包日志）
+
+说明：脚本会把 `update-manifest.json` 自动同步复制为 `update-manifest-<version>.json`，便于版本归档。
+
+### 可选环境变量（更新清单地址）
+
+- `GLASSNOTE_RELEASE_REPO_URL`：仓库根地址（默认 `https://github.com/kakuyo1/glassNote`）
+- `GLASSNOTE_RELEASE_TAG`：发布 tag（默认 `V<version>`）
+
+示例：
+
+```bat
+set GLASSNOTE_RELEASE_TAG=V1.0.1
+B:\glassNote\scripts\package_release.bat 1.0.1
+```
+
+## 自动上传 Release 资产（GitHub）
+
+项目提供上传脚本：`scripts\upload_release_assets.bat`，自动上传以下两个文件到指定 tag：
+
+- `glassNote-<version>-win64-setup.exe`
+- `update-manifest.json`
+
+### 前置要求
+
+- `gh` CLI 可用，并已登录（`gh auth login`）
+- 对应 GitHub Release tag 已存在
+- `powershell.exe` 可用（`.bat` 会调用 `upload_release_assets.ps1`）
+
+### 示例命令
+
+```bat
+B:\glassNote\scripts\upload_release_assets.bat 1.0.1
+```
+
+可选环境变量：
+
+- `GLASSNOTE_RELEASE_REPO`：仓库（默认 `kakuyo1/glassNote`）
+- `GLASSNOTE_RELEASE_TAG`：发布 tag（默认 `V<version>`）
+
+例如：
+
+```bat
+set GLASSNOTE_RELEASE_REPO=kakuyo1/glassNote
+set GLASSNOTE_RELEASE_TAG=V1.0.1
+B:\glassNote\scripts\upload_release_assets.bat 1.0.1
+```
+
+### 卸载数据策略
+
+卸载安装包时**默认保留用户数据**（`%AppData%\glassNote\state.json`），便于重装后继续使用原有事项。
+
+## 更新检查（阶段 2）
+
+当前版本已支持：
+
+- 检查远端 `update-manifest.json`
+- 发现新版本后弹窗提示更新说明
+- 支持“忽略此版本”
+- 支持“前往下载页”
+- 应用内下载安装包并执行 SHA256 校验
+- 校验通过后可直接启动安装器
+
+默认清单地址：
+
+`https://github.com/kakuyo1/glassNote/releases/latest/download/update-manifest.json`
+
+可通过环境变量覆盖：
+
+`GLASSNOTE_UPDATE_MANIFEST_URL=https://your-host/update-manifest.json`
+
+示例清单（最小可用，支持应用内下载）：
+
+```json
+{
+  "version": "0.2.0",
+  "notes": "修复若干问题\n优化性能",
+  "releasePageUrl": "https://github.com/kakuyo1/glassNote/releases/latest",
+  "windows": {
+    "x64": {
+      "installerUrl": "https://github.com/kakuyo1/glassNote/releases/download/v0.2.0/glassNote-0.2.0-win64-setup.exe",
+      "sha256": "PUT_REAL_SHA256_HEX_HERE"
+    }
+  }
+}
+```
 
 ## 测试与质量
 

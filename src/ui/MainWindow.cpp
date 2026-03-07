@@ -244,6 +244,20 @@ void MainWindow::setAlwaysOnTopEnabled(bool enabled) {
     }
 }
 
+void MainWindow::setLaunchAtStartupEnabled(bool enabled) {
+    if (m_boardWidget == nullptr) {
+        return;
+    }
+    m_boardWidget->setLaunchAtStartupEnabled(enabled);
+}
+
+void MainWindow::setAutoCheckUpdatesEnabled(bool enabled) {
+    if (m_boardWidget == nullptr) {
+        return;
+    }
+    m_boardWidget->setAutoCheckUpdatesEnabled(enabled);
+}
+
 void MainWindow::setWindowLocked(bool enabled) {
     if (m_windowLocked == enabled) {
         return;
@@ -936,7 +950,10 @@ void MainWindow::initializeLayout() {
             &MainWindow::restoreLatestBackupRequested);
     connect(m_boardWidget, &NotesBoardWidget::externalFileSyncToggled, this, &MainWindow::externalFileSyncToggled);
     connect(m_boardWidget, &NotesBoardWidget::alwaysOnTopToggled, this, &MainWindow::alwaysOnTopToggled);
+    connect(m_boardWidget, &NotesBoardWidget::launchAtStartupToggled, this, &MainWindow::launchAtStartupToggled);
+    connect(m_boardWidget, &NotesBoardWidget::autoCheckUpdatesToggled, this, &MainWindow::autoCheckUpdatesToggled);
     connect(m_boardWidget, &NotesBoardWidget::windowLockToggled, this, &MainWindow::windowLockToggled);
+    connect(m_boardWidget, &NotesBoardWidget::checkForUpdatesRequested, this, &MainWindow::checkForUpdatesRequested);
     connect(m_boardWidget, &NotesBoardWidget::reminderSetRequested, this, &MainWindow::reminderSetRequested);
     connect(m_boardWidget,
             &NotesBoardWidget::reminderClearedRequested,

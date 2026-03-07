@@ -1,6 +1,10 @@
 # Build outputs
 /build/
+/build-release/
 /cmake-build-*/
+/dist/
+/_CPack_Packages/
+/glassNote-*-portable.zip
 
 # CMake generated files (in-source safety)
 /CMakeCache.txt

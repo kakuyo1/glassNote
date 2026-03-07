@@ -18,6 +18,10 @@ AppState makeState(int noteCount) {
     state.baseLayerOpacity = 0.9;
     state.uiStyle = UiStyle::Pixel;
     state.alwaysOnTop = true;
+    state.launchAtStartup = true;
+    state.autoCheckUpdates = false;
+    state.ignoredUpdateVersion = QStringLiteral("0.2.0");
+    state.lastUpdateCheckEpochMsec = 1700001234567LL;
     state.windowLocked = true;
     state.windowPosition = QPoint(88, 99);
     state.windowSize = QSize(512, 420);
@@ -69,6 +73,10 @@ void GlassNoteTests::serialization_roundTripPersistsFields() {
 
     QCOMPARE(loaded.uiStyle, UiStyle::Pixel);
     QCOMPARE(loaded.alwaysOnTop, true);
+    QCOMPARE(loaded.launchAtStartup, true);
+    QCOMPARE(loaded.autoCheckUpdates, false);
+    QCOMPARE(loaded.ignoredUpdateVersion, QStringLiteral("0.2.0"));
+    QCOMPARE(loaded.lastUpdateCheckEpochMsec, 1700001234567LL);
     QCOMPARE(loaded.windowLocked, true);
     QCOMPARE(loaded.notes.size(), 3);
     QCOMPARE(loaded.notes.at(0).id, QStringLiteral("id-0"));
@@ -99,6 +107,10 @@ void GlassNoteTests::serialization_acceptsLegacyNumericUiStyle() {
     QString errorMessage;
     QVERIFY2(service.importState(filePath, &loaded, &errorMessage), qPrintable(errorMessage));
     QCOMPARE(loaded.uiStyle, UiStyle::Pixel);
+    QCOMPARE(loaded.launchAtStartup, false);
+    QCOMPARE(loaded.autoCheckUpdates, true);
+    QCOMPARE(loaded.ignoredUpdateVersion, QString());
+    QCOMPARE(loaded.lastUpdateCheckEpochMsec, 0);
     QCOMPARE(loaded.notes.at(0).sticker, QString());
 }
 

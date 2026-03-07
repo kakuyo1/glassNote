@@ -47,6 +47,8 @@ public:
     void setBaseLayerOpacity(qreal opacity);
     void setExternalFileSyncEnabled(bool enabled);
     void setAlwaysOnTopEnabled(bool enabled);
+    void setLaunchAtStartupEnabled(bool enabled);
+    void setAutoCheckUpdatesEnabled(bool enabled);
     void setWindowLocked(bool enabled);
     void setReminderEpochMsec(qint64 reminderEpochMsec);
     void setUiStyle(UiStyle uiStyle);
@@ -69,7 +71,10 @@ signals:
     void restoreLatestBackupRequested();
     void externalFileSyncToggled(bool enabled);
     void alwaysOnTopToggled(bool enabled);
+    void launchAtStartupToggled(bool enabled);
+    void autoCheckUpdatesToggled(bool enabled);
     void windowLockToggled(bool enabled);
+    void checkForUpdatesRequested();
     void reminderSetRequested(const QString &noteId);
     void reminderClearedRequested(const QString &noteId);
     void timelineReplayRequested();
@@ -148,6 +153,8 @@ private:
     bool m_pressActivated = false;
     bool m_externalFileSyncEnabled = true;
     bool m_alwaysOnTopEnabled = false;
+    bool m_launchAtStartupEnabled = false;
+    bool m_autoCheckUpdatesEnabled = true;
     bool m_windowLocked = false;
     qint64 m_reminderEpochMsec = 0;
     UiStyle m_uiStyle = UiStyle::Glass;

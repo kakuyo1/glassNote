@@ -23,7 +23,7 @@ namespace {
 
 Q_LOGGING_CATEGORY(lcStorage, "glassnote.storage")
 
-constexpr int kStorageVersion = 2;
+constexpr int kStorageVersion = 3;
 const auto kLatestBackupFileName = QStringLiteral("latest.json");
 
 QString noteLaneToStorageValue(NoteLane lane) {
@@ -252,7 +252,11 @@ QJsonObject stateToJson(const AppState &state) {
     root.insert(QStringLiteral("baseLayerOpacity"), state.baseLayerOpacity);
     root.insert(QStringLiteral("uiStyle"), uiStyleToStorageValue(state.uiStyle));
     root.insert(QStringLiteral("alwaysOnTop"), state.alwaysOnTop);
+    root.insert(QStringLiteral("launchAtStartup"), state.launchAtStartup);
     root.insert(QStringLiteral("windowLocked"), state.windowLocked);
+    root.insert(QStringLiteral("autoCheckUpdates"), state.autoCheckUpdates);
+    root.insert(QStringLiteral("ignoredUpdateVersion"), state.ignoredUpdateVersion);
+    root.insert(QStringLiteral("lastUpdateCheckEpochMsec"), QString::number(state.lastUpdateCheckEpochMsec));
     root.insert(QStringLiteral("clipboardInboxEnabled"), state.clipboardInboxEnabled);
     root.insert(QStringLiteral("ocrExperimentalEnabled"), state.ocrExperimentalEnabled);
 
@@ -291,7 +295,19 @@ AppState stateFromJson(const QJsonObject &root) {
                                     constants::kMaxBaseLayerOpacity);
     state.uiStyle = uiStyleFromStorageValue(root.value(QStringLiteral("uiStyle")));
     state.alwaysOnTop = root.value(QStringLiteral("alwaysOnTop")).toBool(false);
+    state.launchAtStartup = root.value(QStringLiteral("launchAtStartup")).toBool(false);
     state.windowLocked = root.value(QStringLiteral("windowLocked")).toBool(false);
+    state.autoCheckUpdates = root.value(QStringLiteral("autoCheckUpdates")).toBool(true);
+    state.ignoredUpdateVersion = root.value(QStringLiteral("ignoredUpdateVersion")).toString().trimmed();
+    const QJsonValue lastUpdateCheckValue = root.value(QStringLiteral("lastUpdateCheckEpochMsec"));
+    if (lastUpdateCheckValue.isString()) {
+        state.lastUpdateCheckEpochMsec = lastUpdateCheckValue.toString().toLongLong();
+    } else {
+        state.lastUpdateCheckEpochMsec = static_cast<qint64>(lastUpdateCheckValue.toDouble(0.0));
+    }
+    if (state.lastUpdateCheckEpochMsec < 0) {
+        state.lastUpdateCheckEpochMsec = 0;
+    }
     state.clipboardInboxEnabled = root.value(QStringLiteral("clipboardInboxEnabled")).toBool(true);
     state.ocrExperimentalEnabled = root.value(QStringLiteral("ocrExperimentalEnabled")).toBool(false);
 

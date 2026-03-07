@@ -25,7 +25,11 @@ struct AppState {
     qreal baseLayerOpacity = 1.0;
     UiStyle uiStyle = UiStyle::Glass;
     bool alwaysOnTop = false;
+    bool launchAtStartup = false;
     bool windowLocked = false;
+    bool autoCheckUpdates = true;
+    QString ignoredUpdateVersion;
+    qint64 lastUpdateCheckEpochMsec = 0;
     bool clipboardInboxEnabled = true;
     bool ocrExperimentalEnabled = false;
     QVector<DailyTimelineSnapshot> timelineSnapshots;
