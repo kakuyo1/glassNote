@@ -376,6 +376,11 @@ void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
         return;
     }
 
+    if (isTextDropMimeData(event->mimeData())) {
+        event->acceptProposedAction();
+        return;
+    }
+
     if (canHandleDropMimeData(event->mimeData()) && isInEdgeDropZone(event->position().toPoint())) {
         event->acceptProposedAction();
         return;
@@ -386,6 +391,11 @@ void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
 
 void MainWindow::dragMoveEvent(QDragMoveEvent *event) {
     if (event == nullptr) {
+        return;
+    }
+
+    if (isTextDropMimeData(event->mimeData())) {
+        event->acceptProposedAction();
         return;
     }
 
@@ -405,6 +415,18 @@ void MainWindow::dragLeaveEvent(QDragLeaveEvent *event) {
 
 void MainWindow::dropEvent(QDropEvent *event) {
     if (event == nullptr) {
+        return;
+    }
+
+    if (isTextDropMimeData(event->mimeData())) {
+        const QString droppedText = event->mimeData()->text().trimmed();
+        if (droppedText.isEmpty()) {
+            event->ignore();
+            return;
+        }
+
+        emit quickCaptureDropRequested(droppedText);
+        event->acceptProposedAction();
         return;
     }
 
@@ -988,6 +1010,18 @@ bool MainWindow::forwardWheelToScrollArea(QWheelEvent *event) {
     }
 
     return false;
+}
+
+bool MainWindow::isTextDropMimeData(const QMimeData *mimeData) const {
+    if (mimeData == nullptr) {
+        return false;
+    }
+
+    if (!mimeData->hasText() || mimeData->hasUrls() || mimeData->hasImage()) {
+        return false;
+    }
+
+    return !mimeData->text().trimmed().isEmpty();
 }
 
 bool MainWindow::canHandleDropMimeData(const QMimeData *mimeData) const {

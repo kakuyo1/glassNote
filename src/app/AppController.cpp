@@ -6,6 +6,7 @@
 #include <QDialogButtonBox>
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QCursor>
 #include <QDesktopServices>
 #include <QDateTimeEdit>
 #include <QFileDialog>
@@ -23,6 +24,7 @@
 #include <QApplication>
 #include <QPushButton>
 #include <QSet>
+#include <QScreen>
 #include <QStyle>
 #include <QSystemTrayIcon>
 #include <QTextDocument>
@@ -102,7 +104,10 @@ bool promptReminderDateTime(QWidget *parent, const QDateTime &initialValue, qint
     return true;
 }
 
-bool promptQuickCaptureText(QWidget *parent, UiStyle uiStyle, QString *capturedText) {
+bool promptQuickCaptureText(QWidget *parent,
+                            UiStyle uiStyle,
+                            QString *capturedText,
+                            const QString &initialText = QString()) {
     if (capturedText == nullptr) {
         return false;
     }
@@ -213,6 +218,29 @@ bool promptQuickCaptureText(QWidget *parent, UiStyle uiStyle, QString *capturedT
     QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
+    lineEdit->setText(initialText);
+    if (!initialText.isEmpty()) {
+        lineEdit->selectAll();
+    }
+
+    dialog.adjustSize();
+    const QSize dialogSize = dialog.size();
+    const QScreen *targetScreen = parent != nullptr
+                                      ? parent->screen()
+                                      : QGuiApplication::screenAt(QCursor::pos());
+    if (targetScreen == nullptr) {
+        targetScreen = QGuiApplication::primaryScreen();
+    }
+    if (targetScreen != nullptr) {
+        const QRect available = targetScreen->availableGeometry();
+        const int centeredX = available.center().x() - (dialogSize.width() / 2);
+        const int centeredY = available.center().y() - (dialogSize.height() / 2);
+        const int maxX = qMax(available.left(), available.right() - dialogSize.width() + 1);
+        const int maxY = qMax(available.top(), available.bottom() - dialogSize.height() + 1);
+        dialog.move(qBound(available.left(), centeredX, maxX),
+                    qBound(available.top(), centeredY, maxY));
+    }
+
     lineEdit->setFocus(Qt::OtherFocusReason);
     if (dialog.exec() != QDialog::Accepted) {
         return false;
@@ -306,6 +334,10 @@ void AppController::initialize() {
             &MainWindow::edgeDropCaptureRequested,
             this,
             &AppController::handleEdgeDropCaptureRequested);
+    connect(m_mainWindow,
+            &MainWindow::quickCaptureDropRequested,
+            this,
+            &AppController::handleQuickCaptureDropRequested);
 
     m_clipboard = QGuiApplication::clipboard();
     if (m_clipboard != nullptr) {
@@ -845,6 +877,20 @@ void AppController::handleReminderTimeout() {
 void AppController::handleQuickCaptureRequested() {
     QString capturedText;
     if (!promptQuickCaptureText(m_mainWindow, m_state.uiStyle, &capturedText)) {
+        return;
+    }
+
+    appendCapturedNote(capturedText);
+}
+
+void AppController::handleQuickCaptureDropRequested(const QString &text) {
+    const QString droppedText = text.trimmed();
+    if (droppedText.isEmpty()) {
+        return;
+    }
+
+    QString capturedText;
+    if (!promptQuickCaptureText(m_mainWindow, m_state.uiStyle, &capturedText, droppedText)) {
         return;
     }
 

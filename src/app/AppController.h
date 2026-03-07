@@ -61,6 +61,7 @@ private:
     void handleStorageFileChanged(const QString &filePath);
     void handleReminderTimeout();
     void handleQuickCaptureRequested();
+    void handleQuickCaptureDropRequested(const QString &text);
     void handleClipboardDataChanged();
     void handleClipboardInboxImportRequested();
     void handleEdgeDropCaptureRequested(const QString &payload);

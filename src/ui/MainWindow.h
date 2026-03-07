@@ -76,6 +76,7 @@ signals:
     void noteHueChangeRequested(const QString &noteId, int hue);
     void uiStyleChangeRequested(UiStyle uiStyle);
     void edgeDropCaptureRequested(const QString &payload);
+    void quickCaptureDropRequested(const QString &text);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -111,6 +112,7 @@ private:
     bool scrollFallbackByAngleDelta(const QPoint &globalPos, int deltaY);
     QScrollBar *resolveFallbackVerticalScrollBar(const QPoint &globalPos) const;
     bool forwardWheelToScrollArea(QWheelEvent *event);
+    bool isTextDropMimeData(const QMimeData *mimeData) const;
     bool canHandleDropMimeData(const QMimeData *mimeData) const;
     bool isInEdgeDropZone(const QPoint &pos) const;
     QString payloadFromDropMimeData(const QMimeData *mimeData) const;
