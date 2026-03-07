@@ -4,13 +4,19 @@
 #include <QDir>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QClipboard>
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDateTimeEdit>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
+#include <QFont>
+#include <QGuiApplication>
+#include <QHBoxLayout>
 #include <QInputDialog>
+#include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QMenu>
 #include <QAbstractButton>
@@ -34,6 +40,7 @@
 #include "common/Constants.h"
 #include "storage/AutoSaveCoordinator.h"
 #include "storage/JsonStorageService.h"
+#include "theme/ThemeHelper.h"
 #include "ui/MainWindow.h"
 
 namespace glassnote {
@@ -46,10 +53,14 @@ Q_LOGGING_CATEGORY(lcAppController, "glassnote.app.controller")
 constexpr int kAddNoteHotkeyId = 0x4A31;
 constexpr UINT kAddNoteHotkeyModifiers = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT;
 constexpr UINT kAddNoteHotkeyVirtualKey = 0x4E;  // N
+constexpr int kQuickCaptureHotkeyId = 0x4A32;
+constexpr UINT kQuickCaptureHotkeyModifiers = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT;
+constexpr UINT kQuickCaptureHotkeyVirtualKey = 0x51;  // Q
 #endif
 
 constexpr int kReminderPollToleranceMsec = 500;
 constexpr int kReminderMaxIntervalMsec = 24 * 24 * 60 * 60 * 1000;
+constexpr int kClipboardInboxPreviewLength = 36;
 
 bool hasMeaningfulText(const QString &text) {
     QTextDocument document;
@@ -91,6 +102,126 @@ bool promptReminderDateTime(QWidget *parent, const QDateTime &initialValue, qint
     return true;
 }
 
+bool promptQuickCaptureText(QWidget *parent, UiStyle uiStyle, QString *capturedText) {
+    if (capturedText == nullptr) {
+        return false;
+    }
+
+    const NotePalette palette = ThemeHelper::paletteFor(uiStyle, -1, false);
+    const WindowPalette windowPalette = ThemeHelper::windowPalette(uiStyle);
+    QColor panelTop = windowPalette.fillTop;
+    panelTop.setAlpha(qBound(72, panelTop.alpha() + 56, 220));
+    QColor panelBottom = windowPalette.fillBottom;
+    panelBottom.setAlpha(qBound(58, panelBottom.alpha() + 46, 210));
+    QColor fieldFill = palette.fillBottom;
+    fieldFill.setAlpha(qBound(54, fieldFill.alpha() + 20, 180));
+    QColor actionFill = palette.highlightTop;
+    actionFill.setAlpha(qBound(80, actionFill.alpha() + 44, 220));
+    const bool actionIsDark = actionFill.lightness() < 142;
+    const QColor selectionText = actionIsDark ? QColor(255, 255, 255, 242) : QColor(24, 28, 34, 232);
+    const int dialogRadius = uiStyle == UiStyle::Pixel ? 10 : 16;
+
+    QDialog dialog(parent, Qt::Dialog | Qt::FramelessWindowHint);
+    dialog.setWindowTitle(QStringLiteral("极速捕获"));
+    dialog.setModal(true);
+    dialog.setAttribute(Qt::WA_TranslucentBackground, true);
+    dialog.setObjectName(QStringLiteral("quickCaptureDialog"));
+    dialog.setMinimumWidth(420);
+
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(16, 16, 16, 16);
+    layout->setSpacing(10);
+
+    auto *title = new QLabel(QStringLiteral("极速输入条"), &dialog);
+    title->setObjectName(QStringLiteral("quickCaptureTitle"));
+    QFont titleFont = title->font();
+    titleFont.setBold(true);
+    titleFont.setPointSize(titleFont.pointSize() + 1);
+    title->setFont(titleFont);
+
+    auto *hint = new QLabel(QStringLiteral("输入后按 Enter 立即创建事项（Esc 取消）"), &dialog);
+    hint->setObjectName(QStringLiteral("quickCaptureHint"));
+    auto *lineEdit = new QLineEdit(&dialog);
+    lineEdit->setPlaceholderText(QStringLiteral("记一条..."));
+    lineEdit->setClearButtonEnabled(true);
+    lineEdit->setMinimumHeight(34);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dialog);
+    if (QAbstractButton *cancelButton = buttons->button(QDialogButtonBox::Cancel)) {
+        cancelButton->setText(QStringLiteral("取消"));
+    }
+    auto *captureButton = new QPushButton(QStringLiteral("创建"), &dialog);
+    captureButton->setObjectName(QStringLiteral("quickCaptureConfirmButton"));
+    buttons->addButton(captureButton, QDialogButtonBox::AcceptRole);
+    captureButton->setDefault(true);
+
+    dialog.setStyleSheet(
+        QStringLiteral("QDialog#quickCaptureDialog {"
+                       "border: 1px solid %1;"
+                       "border-radius: %10px;"
+                       "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 %2,stop:1 %3);"
+                       "}"
+                       "QLabel#quickCaptureTitle {"
+                       "color: %4;"
+                       "}"
+                       "QLabel#quickCaptureHint {"
+                       "color: %5;"
+                       "}"
+                       "QLineEdit {"
+                       "color: %4;"
+                       "background: %6;"
+                       "border: 1px solid %1;"
+                       "border-radius: 9px;"
+                       "padding: 6px 10px;"
+                       "selection-background-color: %7;"
+                       "selection-color: %8;"
+                       "}"
+                       "QLineEdit:focus {"
+                       "border: 1px solid %7;"
+                       "}"
+                       "QPushButton {"
+                       "color: %4;"
+                       "border-radius: 9px;"
+                       "padding: 6px 14px;"
+                       "border: 1px solid %1;"
+                       "background: transparent;"
+                       "}"
+                       "QPushButton#quickCaptureConfirmButton {"
+                       "background: %7;"
+                       "border: 1px solid %1;"
+                       "}"
+                       "QPushButton:hover {"
+                       "background: %9;"
+                       "}")
+            .arg(palette.border.name(QColor::HexArgb))
+            .arg(panelTop.name(QColor::HexArgb))
+            .arg(panelBottom.name(QColor::HexArgb))
+            .arg(palette.text.name(QColor::HexArgb))
+            .arg(palette.placeholder.name(QColor::HexArgb))
+            .arg(fieldFill.name(QColor::HexArgb))
+            .arg(actionFill.name(QColor::HexArgb))
+            .arg(selectionText.name(QColor::HexArgb))
+            .arg(palette.highlightTop.name(QColor::HexArgb))
+            .arg(dialogRadius));
+
+    layout->addWidget(title);
+    layout->addWidget(hint);
+    layout->addWidget(lineEdit);
+    layout->addWidget(buttons);
+
+    QObject::connect(lineEdit, &QLineEdit::returnPressed, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    lineEdit->setFocus(Qt::OtherFocusReason);
+    if (dialog.exec() != QDialog::Accepted) {
+        return false;
+    }
+
+    *capturedText = lineEdit->text();
+    return true;
+}
+
 }  // namespace
 
 AppController::AppController(QObject *parent)
@@ -129,6 +260,8 @@ void AppController::initialize() {
                             << "message" << loadResult.message;
     m_state = loadResult.state;
     ensureAtLeastOneNote();
+    m_clipboardInboxEnabled = m_state.clipboardInboxEnabled;
+    m_ocrExperimentalEnabled = m_state.ocrExperimentalEnabled;
 
     m_mainWindow = new MainWindow();
     initializeSystemTray();
@@ -169,6 +302,16 @@ void AppController::initialize() {
             &AppController::handleReminderClearedRequested);
     connect(m_mainWindow, &MainWindow::openStorageDirectoryRequested, this, &AppController::openStorageDirectory);
     connect(m_mainWindow, &MainWindow::quitRequested, this, &AppController::quitApplication);
+    connect(m_mainWindow,
+            &MainWindow::edgeDropCaptureRequested,
+            this,
+            &AppController::handleEdgeDropCaptureRequested);
+
+    m_clipboard = QGuiApplication::clipboard();
+    if (m_clipboard != nullptr) {
+        m_lastClipboardText = m_clipboard->text(QClipboard::Clipboard);
+        connect(m_clipboard, &QClipboard::dataChanged, this, &AppController::handleClipboardDataChanged);
+    }
 
     m_mainWindow->show();
     updateTrayMenuText();
@@ -207,6 +350,12 @@ void AppController::applyStateToWindow() {
         return;
     }
 
+    m_clipboardInboxEnabled = m_state.clipboardInboxEnabled;
+    m_ocrExperimentalEnabled = m_state.ocrExperimentalEnabled;
+    if (!m_clipboardInboxEnabled) {
+        m_pendingClipboardInboxText.clear();
+    }
+
     refreshWindow();
 
     if (m_state.hasSavedWindowPosition) {
@@ -227,6 +376,24 @@ void AppController::updateStateFromWindow() {
     }
 
     ensureAtLeastOneNote();
+    m_state.clipboardInboxEnabled = m_clipboardInboxEnabled;
+    m_state.ocrExperimentalEnabled = m_ocrExperimentalEnabled;
+}
+
+bool AppController::appendCapturedNote(const QString &text) {
+    if (!hasMeaningfulText(text)) {
+        return false;
+    }
+
+    ensureAtLeastOneNote();
+
+    NoteItem note = createEmptyNote(m_state.notes.size());
+    note.text = text.trimmed();
+    m_state.notes.append(note);
+    refreshWindow();
+    m_autoSaveCoordinator->requestSave();
+    updateTrayMenuText();
+    return true;
 }
 
 void AppController::handleNoteTextCommitted(const QString &noteId, const QString &text) {
@@ -311,6 +478,7 @@ void AppController::handleUiStyleChangeRequested(UiStyle uiStyle) {
 
     m_state.uiStyle = uiStyle;
     refreshWindow();
+    updateTrayMenuText();
     m_autoSaveCoordinator->requestSave();
 }
 
@@ -674,6 +842,79 @@ void AppController::handleReminderTimeout() {
     scheduleNextReminder();
 }
 
+void AppController::handleQuickCaptureRequested() {
+    QString capturedText;
+    if (!promptQuickCaptureText(m_mainWindow, m_state.uiStyle, &capturedText)) {
+        return;
+    }
+
+    appendCapturedNote(capturedText);
+}
+
+void AppController::handleClipboardDataChanged() {
+    if (!m_clipboardInboxEnabled || m_clipboard == nullptr) {
+        return;
+    }
+
+    const QString clipboardText = m_clipboard->text(QClipboard::Clipboard);
+    if (clipboardText == m_lastClipboardText) {
+        return;
+    }
+    m_lastClipboardText = clipboardText;
+
+    if (!hasMeaningfulText(clipboardText)) {
+        return;
+    }
+
+    m_pendingClipboardInboxText = clipboardText;
+    updateTrayMenuText();
+}
+
+void AppController::handleClipboardInboxImportRequested() {
+    if (!m_clipboardInboxEnabled || m_pendingClipboardInboxText.trimmed().isEmpty()) {
+        return;
+    }
+
+    if (appendCapturedNote(m_pendingClipboardInboxText)) {
+        m_pendingClipboardInboxText.clear();
+        updateTrayMenuText();
+    }
+}
+
+void AppController::handleEdgeDropCaptureRequested(const QString &payload) {
+    appendCapturedNote(payload);
+}
+
+void AppController::handleClipboardInboxToggled(bool enabled) {
+    m_clipboardInboxEnabled = enabled;
+    m_state.clipboardInboxEnabled = enabled;
+    if (!enabled) {
+        m_pendingClipboardInboxText.clear();
+    } else if (m_clipboard != nullptr) {
+        m_lastClipboardText = m_clipboard->text(QClipboard::Clipboard);
+    }
+
+    updateTrayMenuText();
+    m_autoSaveCoordinator->requestSave();
+}
+
+void AppController::handleOcrExperimentalToggled(bool enabled) {
+    m_ocrExperimentalEnabled = enabled;
+    m_state.ocrExperimentalEnabled = enabled;
+    updateTrayMenuText();
+    m_autoSaveCoordinator->requestSave();
+}
+
+void AppController::handleOcrCaptureRequested() {
+    if (m_mainWindow == nullptr) {
+        return;
+    }
+
+    QMessageBox::information(m_mainWindow,
+                             QStringLiteral("OCR 实验能力"),
+                             QStringLiteral("OCR 仍处于实验阶段，当前版本仅提供入口开关。"));
+}
+
 void AppController::handleStorageFileChanged(const QString &filePath) {
     qCInfo(lcAppController) << "storage file changed" << filePath;
 
@@ -763,20 +1004,31 @@ bool AppController::nativeEventFilter(const QByteArray &eventType, void *message
 
 #ifdef Q_OS_WIN
     MSG *msg = static_cast<MSG *>(message);
-    if (msg != nullptr && msg->message == WM_HOTKEY && static_cast<int>(msg->wParam) == kAddNoteHotkeyId) {
-        if (m_mainWindow != nullptr && !m_mainWindow->isVisible()) {
-            m_mainWindow->show();
+    if (msg != nullptr && msg->message == WM_HOTKEY) {
+        const int hotkeyId = static_cast<int>(msg->wParam);
+        if (hotkeyId == kAddNoteHotkeyId) {
+            if (m_mainWindow != nullptr && !m_mainWindow->isVisible()) {
+                m_mainWindow->show();
+            }
+            handleAddNoteRequested();
+            if (m_mainWindow != nullptr) {
+                m_mainWindow->raise();
+                m_mainWindow->activateWindow();
+            }
+            updateTrayMenuText();
+            if (result != nullptr) {
+                *result = 0;
+            }
+            return true;
         }
-        handleAddNoteRequested();
-        if (m_mainWindow != nullptr) {
-            m_mainWindow->raise();
-            m_mainWindow->activateWindow();
+
+        if (hotkeyId == kQuickCaptureHotkeyId) {
+            handleQuickCaptureRequested();
+            if (result != nullptr) {
+                *result = 0;
+            }
+            return true;
         }
-        updateTrayMenuText();
-        if (result != nullptr) {
-            *result = 0;
-        }
-        return true;
     }
 #else
     Q_UNUSED(message)
@@ -800,7 +1052,21 @@ void AppController::initializeSystemTray() {
     QAction *toggleVisibilityAction = m_trayMenu->addAction(QStringLiteral("隐藏窗口"));
     toggleVisibilityAction->setObjectName(QStringLiteral("trayToggleVisibilityAction"));
     QAction *quickAddAction = m_trayMenu->addAction(QStringLiteral("快速新建事项"));
+    QAction *quickCaptureAction = m_trayMenu->addAction(QStringLiteral("极速捕获（Ctrl+Alt+Q）"));
+    m_trayClipboardImportAction = m_trayMenu->addAction(QStringLiteral("导入剪贴板收集箱（暂无内容）"));
+    m_trayClipboardImportAction->setObjectName(QStringLiteral("trayClipboardImportAction"));
+    m_trayMenu->addSeparator();
+    m_trayClipboardInboxToggleAction = m_trayMenu->addAction(QStringLiteral("启用剪贴板收集箱"));
+    m_trayClipboardInboxToggleAction->setCheckable(true);
+    m_trayClipboardInboxToggleAction->setChecked(m_clipboardInboxEnabled);
+    m_trayOcrToggleAction = m_trayMenu->addAction(QStringLiteral("启用 OCR（实验）"));
+    m_trayOcrToggleAction->setCheckable(true);
+    m_trayOcrToggleAction->setChecked(m_ocrExperimentalEnabled);
+    QAction *ocrCaptureAction = m_trayMenu->addAction(QStringLiteral("OCR 图像捕获（实验）"));
+    ocrCaptureAction->setObjectName(QStringLiteral("trayOcrCaptureAction"));
+    m_trayMenu->addSeparator();
     QAction *quitAction = m_trayMenu->addAction(QStringLiteral("退出软件"));
+    ThemeHelper::polishMenu(m_trayMenu, m_state.uiStyle);
 
     connect(toggleVisibilityAction, &QAction::triggered, this, &AppController::toggleMainWindowVisibility);
     connect(quickAddAction, &QAction::triggered, this, [this]() {
@@ -814,6 +1080,17 @@ void AppController::initializeSystemTray() {
         }
         updateTrayMenuText();
     });
+    connect(quickCaptureAction, &QAction::triggered, this, &AppController::handleQuickCaptureRequested);
+    connect(m_trayClipboardImportAction,
+            &QAction::triggered,
+            this,
+            &AppController::handleClipboardInboxImportRequested);
+    connect(m_trayClipboardInboxToggleAction,
+            &QAction::toggled,
+            this,
+            &AppController::handleClipboardInboxToggled);
+    connect(m_trayOcrToggleAction, &QAction::toggled, this, &AppController::handleOcrExperimentalToggled);
+    connect(ocrCaptureAction, &QAction::triggered, this, &AppController::handleOcrCaptureRequested);
     connect(quitAction, &QAction::triggered, this, &AppController::quitApplication);
 
     m_trayIcon = new QSystemTrayIcon(trayIcon, this);
@@ -828,18 +1105,49 @@ void AppController::initializeSystemTray() {
 }
 
 void AppController::updateTrayMenuText() {
-    if (m_trayMenu == nullptr || m_mainWindow == nullptr) {
+    if (m_trayMenu == nullptr) {
         return;
     }
+
+    ThemeHelper::polishMenu(m_trayMenu, m_state.uiStyle);
 
     QAction *toggleVisibilityAction = m_trayMenu->findChild<QAction *>(QStringLiteral("trayToggleVisibilityAction"));
     if (toggleVisibilityAction == nullptr) {
         return;
     }
 
-    toggleVisibilityAction->setText(m_mainWindow->isVisible()
+    const bool mainWindowVisible = m_mainWindow != nullptr && m_mainWindow->isVisible();
+    toggleVisibilityAction->setText(mainWindowVisible
                                         ? QStringLiteral("隐藏窗口")
                                         : QStringLiteral("显示窗口"));
+
+    if (m_trayClipboardImportAction != nullptr) {
+        QString preview = m_pendingClipboardInboxText.simplified();
+        if (preview.size() > kClipboardInboxPreviewLength) {
+            preview = preview.left(kClipboardInboxPreviewLength) + QStringLiteral("...");
+        }
+
+        if (preview.isEmpty()) {
+            m_trayClipboardImportAction->setText(QStringLiteral("导入剪贴板收集箱（暂无内容）"));
+            m_trayClipboardImportAction->setEnabled(false);
+        } else {
+            m_trayClipboardImportAction->setText(QStringLiteral("导入剪贴板：%1").arg(preview));
+            m_trayClipboardImportAction->setEnabled(m_clipboardInboxEnabled);
+        }
+    }
+
+    if (m_trayClipboardInboxToggleAction != nullptr) {
+        m_trayClipboardInboxToggleAction->setChecked(m_clipboardInboxEnabled);
+    }
+
+    if (m_trayOcrToggleAction != nullptr) {
+        m_trayOcrToggleAction->setChecked(m_ocrExperimentalEnabled);
+    }
+
+    QAction *ocrCaptureAction = m_trayMenu->findChild<QAction *>(QStringLiteral("trayOcrCaptureAction"));
+    if (ocrCaptureAction != nullptr) {
+        ocrCaptureAction->setEnabled(m_ocrExperimentalEnabled);
+    }
 }
 
 void AppController::toggleMainWindowVisibility() {
@@ -860,25 +1168,33 @@ void AppController::toggleMainWindowVisibility() {
 
 void AppController::registerGlobalHotkey() {
 #ifdef Q_OS_WIN
-    if (m_hotkeyRegistered) {
-        return;
+    if (!m_addHotkeyRegistered) {
+        m_addHotkeyRegistered = RegisterHotKey(nullptr,
+                                               kAddNoteHotkeyId,
+                                               kAddNoteHotkeyModifiers,
+                                               kAddNoteHotkeyVirtualKey) != 0;
     }
 
-    m_hotkeyRegistered = RegisterHotKey(nullptr,
-                                        kAddNoteHotkeyId,
-                                        kAddNoteHotkeyModifiers,
-                                        kAddNoteHotkeyVirtualKey) != 0;
+    if (!m_quickCaptureHotkeyRegistered) {
+        m_quickCaptureHotkeyRegistered = RegisterHotKey(nullptr,
+                                                        kQuickCaptureHotkeyId,
+                                                        kQuickCaptureHotkeyModifiers,
+                                                        kQuickCaptureHotkeyVirtualKey) != 0;
+    }
 #endif
 }
 
 void AppController::unregisterGlobalHotkey() {
 #ifdef Q_OS_WIN
-    if (!m_hotkeyRegistered) {
-        return;
+    if (m_addHotkeyRegistered) {
+        UnregisterHotKey(nullptr, kAddNoteHotkeyId);
+        m_addHotkeyRegistered = false;
     }
 
-    UnregisterHotKey(nullptr, kAddNoteHotkeyId);
-    m_hotkeyRegistered = false;
+    if (m_quickCaptureHotkeyRegistered) {
+        UnregisterHotKey(nullptr, kQuickCaptureHotkeyId);
+        m_quickCaptureHotkeyRegistered = false;
+    }
 #endif
 }
 

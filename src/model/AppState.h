@@ -20,6 +20,8 @@ struct AppState {
     UiStyle uiStyle = UiStyle::Glass;
     bool alwaysOnTop = false;
     bool windowLocked = false;
+    bool clipboardInboxEnabled = true;
+    bool ocrExperimentalEnabled = false;
 };
 
 }  // namespace glassnote

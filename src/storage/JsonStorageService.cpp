@@ -144,6 +144,8 @@ QJsonObject stateToJson(const AppState &state) {
     root.insert(QStringLiteral("uiStyle"), uiStyleToStorageValue(state.uiStyle));
     root.insert(QStringLiteral("alwaysOnTop"), state.alwaysOnTop);
     root.insert(QStringLiteral("windowLocked"), state.windowLocked);
+    root.insert(QStringLiteral("clipboardInboxEnabled"), state.clipboardInboxEnabled);
+    root.insert(QStringLiteral("ocrExperimentalEnabled"), state.ocrExperimentalEnabled);
 
     QJsonObject windowObject;
     windowObject.insert(QStringLiteral("x"), state.windowPosition.x());
@@ -172,6 +174,8 @@ AppState stateFromJson(const QJsonObject &root) {
     state.uiStyle = uiStyleFromStorageValue(root.value(QStringLiteral("uiStyle")));
     state.alwaysOnTop = root.value(QStringLiteral("alwaysOnTop")).toBool(false);
     state.windowLocked = root.value(QStringLiteral("windowLocked")).toBool(false);
+    state.clipboardInboxEnabled = root.value(QStringLiteral("clipboardInboxEnabled")).toBool(true);
+    state.ocrExperimentalEnabled = root.value(QStringLiteral("ocrExperimentalEnabled")).toBool(false);
 
     const QJsonObject windowObject = root.value(QStringLiteral("window")).toObject();
     if (windowObject.contains(QStringLiteral("x")) && windowObject.contains(QStringLiteral("y"))) {

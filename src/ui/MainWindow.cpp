@@ -2,8 +2,12 @@
 
 #include <QApplication>
 #include <QAbstractScrollArea>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QFrame>
+#include <QMimeData>
 #include <QMoveEvent>
 #include <QMouseEvent>
 #include <QEvent>
@@ -125,6 +129,8 @@ int scrollBarWidthForScale(qreal scale) {
 bool styleUsesWindowBackdrop(UiStyle uiStyle) {
     return uiStyle == UiStyle::Glass || uiStyle == UiStyle::Mist;
 }
+
+constexpr int kEdgeDropCaptureZonePx = 36;
 
 }  // namespace
 
@@ -363,6 +369,58 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     }
 
     return QWidget::eventFilter(watched, event);
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
+    if (event == nullptr) {
+        return;
+    }
+
+    if (canHandleDropMimeData(event->mimeData()) && isInEdgeDropZone(event->position().toPoint())) {
+        event->acceptProposedAction();
+        return;
+    }
+
+    event->ignore();
+}
+
+void MainWindow::dragMoveEvent(QDragMoveEvent *event) {
+    if (event == nullptr) {
+        return;
+    }
+
+    if (canHandleDropMimeData(event->mimeData()) && isInEdgeDropZone(event->position().toPoint())) {
+        event->acceptProposedAction();
+        return;
+    }
+
+    event->ignore();
+}
+
+void MainWindow::dragLeaveEvent(QDragLeaveEvent *event) {
+    if (event != nullptr) {
+        event->accept();
+    }
+}
+
+void MainWindow::dropEvent(QDropEvent *event) {
+    if (event == nullptr) {
+        return;
+    }
+
+    if (!canHandleDropMimeData(event->mimeData()) || !isInEdgeDropZone(event->position().toPoint())) {
+        event->ignore();
+        return;
+    }
+
+    const QString payload = payloadFromDropMimeData(event->mimeData());
+    if (payload.trimmed().isEmpty()) {
+        event->ignore();
+        return;
+    }
+
+    emit edgeDropCaptureRequested(payload);
+    event->acceptProposedAction();
 }
 
 void MainWindow::mousePressEvent(QMouseEvent *event) {
@@ -668,6 +726,7 @@ void MainWindow::initializeWindow() {
     setAttribute(Qt::WA_TranslucentBackground, true);
     setAttribute(Qt::WA_NoSystemBackground, true);
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    setAcceptDrops(true);
 }
 
 void MainWindow::initializeLayout() {
@@ -929,6 +988,72 @@ bool MainWindow::forwardWheelToScrollArea(QWheelEvent *event) {
     }
 
     return false;
+}
+
+bool MainWindow::canHandleDropMimeData(const QMimeData *mimeData) const {
+    if (mimeData == nullptr) {
+        return false;
+    }
+
+    if (mimeData->hasText() && !mimeData->text().trimmed().isEmpty()) {
+        return true;
+    }
+
+    if (mimeData->hasUrls() && !mimeData->urls().isEmpty()) {
+        return true;
+    }
+
+    return mimeData->hasImage();
+}
+
+bool MainWindow::isInEdgeDropZone(const QPoint &pos) const {
+    if (!rect().contains(pos)) {
+        return false;
+    }
+
+    const bool nearLeft = pos.x() <= kEdgeDropCaptureZonePx;
+    const bool nearRight = pos.x() >= rect().width() - kEdgeDropCaptureZonePx;
+    const bool nearTop = pos.y() <= kEdgeDropCaptureZonePx;
+    const bool nearBottom = pos.y() >= rect().height() - kEdgeDropCaptureZonePx;
+    return nearLeft || nearRight || nearTop || nearBottom;
+}
+
+QString MainWindow::payloadFromDropMimeData(const QMimeData *mimeData) const {
+    if (mimeData == nullptr) {
+        return QString();
+    }
+
+    const QString droppedText = mimeData->text().trimmed();
+    if (!droppedText.isEmpty()) {
+        return droppedText;
+    }
+
+    if (mimeData->hasUrls()) {
+        const QList<QUrl> urls = mimeData->urls();
+        for (const QUrl &url : urls) {
+            if (!url.isLocalFile()) {
+                continue;
+            }
+
+            const QString localPath = url.toLocalFile();
+            const QString suffix = QFileInfo(localPath).suffix().toLower();
+            if (suffix == QStringLiteral("png")
+                || suffix == QStringLiteral("jpg")
+                || suffix == QStringLiteral("jpeg")
+                || suffix == QStringLiteral("bmp")
+                || suffix == QStringLiteral("gif")
+                || suffix == QStringLiteral("webp")) {
+                return QStringLiteral("[拖拽图片] %1").arg(localPath);
+            }
+            return localPath;
+        }
+    }
+
+    if (mimeData->hasImage()) {
+        return QStringLiteral("[拖拽图片] 已捕获图像数据（实验能力可接入 OCR）");
+    }
+
+    return QString();
 }
 
 bool MainWindow::scrollBoardByPixelDelta(int deltaY) {

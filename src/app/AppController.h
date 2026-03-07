@@ -11,6 +11,8 @@
 class QMenu;
 class QSystemTrayIcon;
 class QTimer;
+class QAction;
+class QClipboard;
 
 namespace glassnote {
 
@@ -58,9 +60,17 @@ private:
     void handleReminderClearedRequested(const QString &noteId);
     void handleStorageFileChanged(const QString &filePath);
     void handleReminderTimeout();
+    void handleQuickCaptureRequested();
+    void handleClipboardDataChanged();
+    void handleClipboardInboxImportRequested();
+    void handleEdgeDropCaptureRequested(const QString &payload);
+    void handleClipboardInboxToggled(bool enabled);
+    void handleOcrExperimentalToggled(bool enabled);
+    void handleOcrCaptureRequested();
     void initializeSystemTray();
     void updateTrayMenuText();
     void toggleMainWindowVisibility();
+    bool appendCapturedNote(const QString &text);
     void registerGlobalHotkey();
     void unregisterGlobalHotkey();
     void scheduleNextReminder();
@@ -82,7 +92,16 @@ private:
     QTimer *m_reminderTimer = nullptr;
     QSystemTrayIcon *m_trayIcon = nullptr;
     QMenu *m_trayMenu = nullptr;
-    bool m_hotkeyRegistered = false;
+    QClipboard *m_clipboard = nullptr;
+    QAction *m_trayClipboardImportAction = nullptr;
+    QAction *m_trayClipboardInboxToggleAction = nullptr;
+    QAction *m_trayOcrToggleAction = nullptr;
+    QString m_lastClipboardText;
+    QString m_pendingClipboardInboxText;
+    bool m_clipboardInboxEnabled = true;
+    bool m_ocrExperimentalEnabled = false;
+    bool m_addHotkeyRegistered = false;
+    bool m_quickCaptureHotkeyRegistered = false;
     bool m_nativeEventFilterInstalled = false;
     bool m_quitInProgress = false;
 };

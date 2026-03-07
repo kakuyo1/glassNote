@@ -7,6 +7,10 @@
 #include <QResizeEvent>
 #include <QWheelEvent>
 #include <QPaintEvent>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QMimeData>
 #include <QPoint>
 #include <QPropertyAnimation>
 #include <QRect>
@@ -71,9 +75,14 @@ signals:
     void noteDeleteRequested(const QString &noteId);
     void noteHueChangeRequested(const QString &noteId, int hue);
     void uiStyleChangeRequested(UiStyle uiStyle);
+    void edgeDropCaptureRequested(const QString &payload);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dragLeaveEvent(QDragLeaveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
@@ -102,6 +111,9 @@ private:
     bool scrollFallbackByAngleDelta(const QPoint &globalPos, int deltaY);
     QScrollBar *resolveFallbackVerticalScrollBar(const QPoint &globalPos) const;
     bool forwardWheelToScrollArea(QWheelEvent *event);
+    bool canHandleDropMimeData(const QMimeData *mimeData) const;
+    bool isInEdgeDropZone(const QPoint &pos) const;
+    QString payloadFromDropMimeData(const QMimeData *mimeData) const;
     QRect clampedGeometry(const QRect &targetGeometry) const;
     QRect adjustedResizeGeometry(const QRect &targetGeometry, Qt::Edges activeEdges) const;
     QSize scaledMinimumSize() const;

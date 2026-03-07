@@ -19,6 +19,8 @@ AppState makeState(int noteCount) {
     state.uiStyle = UiStyle::Pixel;
     state.alwaysOnTop = true;
     state.windowLocked = true;
+    state.clipboardInboxEnabled = false;
+    state.ocrExperimentalEnabled = true;
     state.windowPosition = QPoint(88, 99);
     state.windowSize = QSize(512, 420);
     state.hasSavedWindowPosition = true;
@@ -67,6 +69,8 @@ void GlassNoteUnitTests::serialization_roundTripPersistsFields() {
     QCOMPARE(loaded.uiStyle, UiStyle::Pixel);
     QCOMPARE(loaded.alwaysOnTop, true);
     QCOMPARE(loaded.windowLocked, true);
+    QCOMPARE(loaded.clipboardInboxEnabled, false);
+    QCOMPARE(loaded.ocrExperimentalEnabled, true);
     QCOMPARE(loaded.notes.size(), 3);
     QCOMPARE(loaded.notes.at(0).id, QStringLiteral("id-0"));
     QCOMPARE(loaded.notes.at(0).text, QStringLiteral("note-0"));
