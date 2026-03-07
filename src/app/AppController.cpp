@@ -2041,7 +2041,10 @@ void AppController::initializeSystemTray() {
         return;
     }
 
-    QIcon trayIcon = QApplication::windowIcon();
+    QIcon trayIcon(QStringLiteral(":/static/icons/tobyfox-small.png"));
+    if (trayIcon.isNull()) {
+        trayIcon = QApplication::windowIcon();
+    }
     if (trayIcon.isNull()) {
         trayIcon = QApplication::style()->standardIcon(QStyle::SP_FileIcon);
     }

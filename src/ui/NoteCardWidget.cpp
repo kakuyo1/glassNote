@@ -17,6 +17,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPixmap>
 #include <QPropertyAnimation>
 #include <QSignalBlocker>
 #include <QFontMetrics>
@@ -42,6 +43,8 @@ namespace {
 
 const QString kChecklistUncheckedPrefix = QStringLiteral("☐ ");
 const QString kChecklistCheckedPrefix = QStringLiteral("☑ ");
+const QString kImageStickerToken = QStringLiteral("__tobyfox__");
+const QString kImageStickerResource = QStringLiteral(":/static/icons/tobyfox-small.png");
 
 enum class ChecklistState {
     None,
@@ -590,12 +593,16 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
         {"✅ 完成", "✅"},
         {"💡 灵感", "💡"},
         {"🔥 紧急", "🔥"},
+        {"TobyFox", "__tobyfox__"},
     };
     for (const StickerAction &entry : stickerActions) {
         QAction *action = stickerMenu->addAction(QString::fromUtf8(entry.label));
         action->setCheckable(true);
         action->setChecked(m_sticker == QString::fromUtf8(entry.value));
         action->setData(QString::fromUtf8(entry.value));
+        if (QString::fromUtf8(entry.value) == kImageStickerToken) {
+            action->setIcon(QIcon(kImageStickerResource));
+        }
     }
 
     QMenu *uiStyleMenu = menu.addMenu(QStringLiteral("界面风格（全局）"));
@@ -1179,22 +1186,42 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
         painter.setFont(stickerFont);
 
         const QString stickerText = m_sticker.trimmed();
-        const QFontMetrics metrics(stickerFont);
         const int iconPadding = qMax(6, static_cast<int>(8.0 * m_uiScale));
         const QRect anchorRect = bodyRect.toRect().adjusted(iconPadding,
                                                              iconPadding,
                                                              -iconPadding,
                                                              -iconPadding);
-        const QSize textSize = metrics.size(Qt::TextSingleLine, stickerText);
         const int bubblePaddingX = qMax(5, static_cast<int>(6.0 * m_uiScale));
         const int bubblePaddingY = qMax(3, static_cast<int>(4.0 * m_uiScale));
-        const int bubbleWidth = textSize.width() + (bubblePaddingX * 2);
-        const int bubbleHeight = textSize.height() + (bubblePaddingY * 2);
 
-        const QRect bubbleRect(anchorRect.right() - bubbleWidth + 1,
-                               anchorRect.top(),
-                               bubbleWidth,
-                               bubbleHeight);
+        QSize contentSize;
+        QPixmap stickerPixmap;
+        const bool useImageSticker = stickerText == kImageStickerToken;
+        if (useImageSticker) {
+            stickerPixmap = QPixmap(kImageStickerResource);
+            if (stickerPixmap.isNull()) {
+                stickerPixmap = QPixmap(QStringLiteral(":/static/icons/tobyfox.png"));
+            }
+
+            if (!stickerPixmap.isNull()) {
+                const int iconSize = qMax(14, static_cast<int>(18.0 * m_uiScale));
+                stickerPixmap = stickerPixmap.scaled(iconSize,
+                                                     iconSize,
+                                                     Qt::KeepAspectRatio,
+                                                     Qt::SmoothTransformation);
+                contentSize = stickerPixmap.size();
+            }
+        }
+
+        if (contentSize.isEmpty()) {
+            const QFontMetrics metrics(stickerFont);
+            contentSize = metrics.size(Qt::TextSingleLine, stickerText);
+        }
+
+        const int bubbleWidth = contentSize.width() + (bubblePaddingX * 2);
+        const int bubbleHeight = contentSize.height() + (bubblePaddingY * 2);
+
+        const QRect bubbleRect(anchorRect.right() - bubbleWidth + 1, anchorRect.top(), bubbleWidth, bubbleHeight);
 
         QColor bubbleFill = palette.fillBottom;
         bubbleFill.setAlpha(qBound(88, bubbleFill.alpha() + 68, 226));
@@ -1208,8 +1235,15 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
         painter.drawRoundedRect(bubbleRect,
                                 qMax<qreal>(6.0, 7.0 * m_uiScale),
                                 qMax<qreal>(6.0, 7.0 * m_uiScale));
-        painter.setPen(stickerColor);
-        painter.drawText(bubbleRect, Qt::AlignCenter, stickerText);
+
+        if (!stickerPixmap.isNull()) {
+            const int iconX = bubbleRect.x() + ((bubbleRect.width() - stickerPixmap.width()) / 2);
+            const int iconY = bubbleRect.y() + ((bubbleRect.height() - stickerPixmap.height()) / 2);
+            painter.drawPixmap(iconX, iconY, stickerPixmap);
+        } else {
+            painter.setPen(stickerColor);
+            painter.drawText(bubbleRect, Qt::AlignCenter, stickerText);
+        }
     }
 
     painter.restore();

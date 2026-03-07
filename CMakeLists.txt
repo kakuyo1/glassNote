@@ -37,7 +37,17 @@ qt_add_executable(glassNote
     src/ui/NoteCardWidget.h
     src/ui/NotesBoardWidget.cpp
     src/ui/NotesBoardWidget.h
+    resources/icons.qrc
 )
+
+if(WIN32)
+    set(GLASSNOTE_APP_ICON_ICO "${CMAKE_CURRENT_SOURCE_DIR}/static/icons/tobyfox.ico")
+    set(GLASSNOTE_APP_ICON_ICO_NATIVE "${GLASSNOTE_APP_ICON_ICO}")
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/windows/app_icon.rc.in"
+                   "${CMAKE_CURRENT_BINARY_DIR}/app_icon.rc"
+                   @ONLY)
+    target_sources(glassNote PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/app_icon.rc")
+endif()
 
 target_link_libraries(glassNote PRIVATE Qt6::Widgets Qt6::Network)
 target_compile_definitions(glassNote PRIVATE GLASSNOTE_APP_VERSION="${PROJECT_VERSION}")

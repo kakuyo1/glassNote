@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file>../static/icons/tobyfox.png</file>
+        <file>../static/icons/tobyfox-small.png</file>
+    </qresource>
+</RCC>

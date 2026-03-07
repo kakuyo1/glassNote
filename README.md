@@ -142,6 +142,25 @@ set GLASSNOTE_RELEASE_TAG=V1.0.1
 B:\glassNote\scripts\upload_release_assets.bat 1.0.1
 ```
 
+## 一键全流程（打包 + 生成清单 + 上传）
+
+如果你已经准备好对应的 GitHub Release tag，可直接执行：
+
+```bat
+B:\glassNote\scripts\release_pipeline.bat 1.0.1
+```
+
+该脚本会顺序调用：
+
+1. `package_release.bat`（生成安装包、SHA256、manifest、版本化 manifest）
+2. `upload_release_assets.bat`（上传安装包和 `update-manifest.json`）
+
+如需失败后暂停窗口：
+
+```bat
+B:\glassNote\scripts\release_pipeline.bat 1.0.1 --pause
+```
+
 ### 卸载数据策略
 
 卸载安装包时**默认保留用户数据**（`%AppData%\glassNote\state.json`），便于重装后继续使用原有事项。
