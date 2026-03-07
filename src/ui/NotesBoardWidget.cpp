@@ -1,8 +1,10 @@
 #include "ui/NotesBoardWidget.h"
 
+#include <algorithm>
 #include <QHash>
 #include <QFont>
 #include <QFontMetrics>
+#include <QLabel>
 #include <QSet>
 #include <QVBoxLayout>
 
@@ -45,6 +47,28 @@ bool shouldAnimateReposition(qreal uiScale, int cardCount, const QPoint &from, c
     const int minDistance = qMax(4, static_cast<int>(6.0 * uiScale));
     const int maxDistance = static_cast<int>(220.0 * uiScale);
     return distance >= minDistance && distance <= maxDistance;
+}
+
+QLabel *createLaneHeaderWidget(NoteLane lane, QWidget *parent, qreal uiScale) {
+    auto *header = new QLabel(noteLaneDisplayName(lane), parent);
+    QFont headerFont = header->font();
+    headerFont.setBold(true);
+    headerFont.setPointSizeF(10.0 * uiScale);
+    header->setFont(headerFont);
+    header->setStyleSheet(QStringLiteral("QLabel { color: rgba(255, 255, 255, 172); padding: 4px 2px 2px 2px; }") );
+    return header;
+}
+
+bool noteLessThanByLaneAndOrder(const NoteItem &left, const NoteItem &right) {
+    const int leftLane = noteLaneSortIndex(left.lane);
+    const int rightLane = noteLaneSortIndex(right.lane);
+    if (leftLane != rightLane) {
+        return leftLane < rightLane;
+    }
+    if (left.order != right.order) {
+        return left.order < right.order;
+    }
+    return left.id < right.id;
 }
 
 }  // namespace
@@ -104,14 +128,18 @@ int NotesBoardWidget::bestVisibleContentHeight(int maxHeight) const {
 }
 
 int NotesBoardWidget::totalContentHeight() const {
-    if (m_cards.isEmpty()) {
+    if (m_layout == nullptr || m_layout->count() == 0) {
         return 0;
     }
 
     const int spacing = m_layout->spacing();
     int totalHeight = 0;
-    for (int index = 0; index < m_cards.size(); ++index) {
-        totalHeight += m_cards.at(index)->sizeHint().height();
+    for (int index = 0; index < m_layout->count(); ++index) {
+        QLayoutItem *item = m_layout->itemAt(index);
+        if (item == nullptr || item->widget() == nullptr) {
+            continue;
+        }
+        totalHeight += item->widget()->sizeHint().height();
         if (index > 0) {
             totalHeight += spacing;
         }
@@ -137,6 +165,13 @@ int NotesBoardWidget::requiredContentWidth() const {
         maxCardHintWidth = qMax(maxCardHintWidth, card->sizeHint().width());
     }
 
+    for (QWidget *laneHeader : std::as_const(m_laneHeaders)) {
+        if (laneHeader == nullptr) {
+            continue;
+        }
+        maxCardHintWidth = qMax(maxCardHintWidth, laneHeader->sizeHint().width());
+    }
+
     const int horizontalPadding = static_cast<int>((constants::kCardPaddingHorizontal * m_uiScale) * 2.0);
     const int cardFrameSlack = static_cast<int>(8.0 * m_uiScale);
     const int textBasedWidth = maxLineWidth + horizontalPadding + cardFrameSlack;
@@ -152,6 +187,7 @@ QVector<NoteItem> NotesBoardWidget::notes() const {
         NoteItem item;
         item.id = card->noteId();
         item.text = card->text();
+        item.lane = card->lane();
         item.hue = card->hue();
         item.reminderEpochMsec = card->reminderEpochMsec();
         item.order = static_cast<int>(index);
@@ -179,6 +215,16 @@ void NotesBoardWidget::setUiScale(qreal scale) {
     m_layout->setSpacing(boardSpacingForScale(m_uiScale));
     for (NoteCardWidget *card : std::as_const(m_cards)) {
         card->setUiScale(scale);
+    }
+
+    for (QWidget *laneHeader : std::as_const(m_laneHeaders)) {
+        auto *label = qobject_cast<QLabel *>(laneHeader);
+        if (label == nullptr) {
+            continue;
+        }
+        QFont headerFont = label->font();
+        headerFont.setPointSizeF(10.0 * m_uiScale);
+        label->setFont(headerFont);
     }
 }
 
@@ -236,16 +282,41 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
     for (NoteCardWidget *card : std::as_const(m_cards)) {
         existingCards.insert(card->noteId(), card);
         previousPositions.insert(card->noteId(), card->pos());
+        m_layout->removeWidget(card);
     }
 
+    for (QWidget *laneHeader : std::as_const(m_laneHeaders)) {
+        if (laneHeader == nullptr) {
+            continue;
+        }
+        m_layout->removeWidget(laneHeader);
+        laneHeader->deleteLater();
+    }
+    m_laneHeaders.clear();
+
+    QVector<NoteItem> orderedNotes = notes;
+    std::stable_sort(orderedNotes.begin(), orderedNotes.end(), noteLessThanByLaneAndOrder);
+
     QVector<NoteCardWidget *> orderedCards;
-    orderedCards.reserve(notes.size());
+    orderedCards.reserve(orderedNotes.size());
     QSet<QString> newCardIds;
     QVector<NoteCardWidget *> cardsPendingEntranceAnimation;
-    cardsPendingEntranceAnimation.reserve(notes.size());
+    cardsPendingEntranceAnimation.reserve(orderedNotes.size());
 
-    for (int index = 0; index < notes.size(); ++index) {
-        const NoteItem &item = notes.at(index);
+    NoteLane activeLane = NoteLane::Today;
+    bool laneInitialized = false;
+
+    for (int index = 0; index < orderedNotes.size(); ++index) {
+        const NoteItem &item = orderedNotes.at(index);
+        const NoteLane itemLane = normalizedNoteLane(item.lane);
+        if (!laneInitialized || activeLane != itemLane) {
+            activeLane = itemLane;
+            laneInitialized = true;
+            QLabel *laneHeader = createLaneHeaderWidget(itemLane, this, m_uiScale);
+            m_layout->addWidget(laneHeader);
+            m_laneHeaders.append(laneHeader);
+        }
+
         NoteCardWidget *card = existingCards.take(item.id);
         const bool isNewCard = (card == nullptr);
         if (isNewCard) {
@@ -281,12 +352,14 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
             connect(card, &NoteCardWidget::quitRequested, this, &NotesBoardWidget::quitRequested);
             connect(card, &NoteCardWidget::deleteRequested, this, &NotesBoardWidget::handleCardDeleteRequested);
             connect(card, &NoteCardWidget::hueChangeRequested, this, &NotesBoardWidget::noteHueChangeRequested);
+            connect(card, &NoteCardWidget::laneChangeRequested, this, &NotesBoardWidget::noteLaneChangeRequested);
             connect(card, &NoteCardWidget::uiStyleChangeRequested, this, &NotesBoardWidget::uiStyleChangeRequested);
         }
 
         card->setNoteId(item.id);
         card->setText(item.text);
         card->setHue(item.hue);
+        card->setLane(itemLane);
         card->setUiScale(m_uiScale);
         card->setBaseLayerOpacity(m_baseLayerOpacity);
         card->setUiStyle(m_uiStyle);
@@ -296,8 +369,7 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
         card->setReminderEpochMsec(item.reminderEpochMsec);
         card->show();
 
-        m_layout->removeWidget(card);
-        m_layout->insertWidget(index, card);
+        m_layout->addWidget(card);
         orderedCards.append(card);
 
         if (isNewCard) {

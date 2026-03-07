@@ -362,6 +362,10 @@ int NoteCardWidget::hue() const {
     return m_hue;
 }
 
+NoteLane NoteCardWidget::lane() const {
+    return m_lane;
+}
+
 qint64 NoteCardWidget::reminderEpochMsec() const {
     return m_reminderEpochMsec;
 }
@@ -403,6 +407,10 @@ void NoteCardWidget::setHue(int hue) {
     m_hue = hue;
     updateDisplayText();
     update();
+}
+
+void NoteCardWidget::setLane(NoteLane lane) {
+    m_lane = normalizedNoteLane(lane);
 }
 
 void NoteCardWidget::setUiScale(qreal scale) {
@@ -493,6 +501,25 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
     QAction *clearEmptyAction = menu.addAction(QStringLiteral("清空所有空事项"));
     menu.addSeparator();
     QAction *deleteAction = menu.addAction(QStringLiteral("删除该事项"));
+
+    QMenu *laneMenu = menu.addMenu(QStringLiteral("移动到泳道"));
+    ThemeHelper::polishMenu(laneMenu, m_uiStyle, m_hue);
+    struct LaneAction {
+        const char *label;
+        NoteLane lane;
+    };
+    const LaneAction laneActions[] = {
+        {"Today", NoteLane::Today},
+        {"Next", NoteLane::Next},
+        {"Waiting", NoteLane::Waiting},
+        {"Someday", NoteLane::Someday},
+    };
+    for (const LaneAction &entry : laneActions) {
+        QAction *action = laneMenu->addAction(QString::fromUtf8(entry.label));
+        action->setCheckable(true);
+        action->setChecked(m_lane == entry.lane);
+        action->setData(static_cast<int>(entry.lane));
+    }
 
     QMenu *themeMenu = menu.addMenu(QStringLiteral("修改配色"));
     ThemeHelper::polishMenu(themeMenu, m_uiStyle, m_hue);
@@ -629,6 +656,12 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
 
     if (chosen == deleteAction) {
         emit deleteRequested(m_noteId);
+        return;
+    }
+
+    if (chosen->parent() == laneMenu) {
+        const NoteLane selectedLane = normalizedNoteLane(static_cast<NoteLane>(chosen->data().toInt()));
+        emit laneChangeRequested(m_noteId, selectedLane);
         return;
     }
 

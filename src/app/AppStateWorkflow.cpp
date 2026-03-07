@@ -19,8 +19,32 @@ void syncNoteOrder(QVector<NoteItem> *notes) {
         return;
     }
 
+    int todayOrder = 0;
+    int nextOrder = 0;
+    int waitingOrder = 0;
+    int somedayOrder = 0;
+
     for (int index = 0; index < notes->size(); ++index) {
-        (*notes)[index].order = index;
+        NoteItem &note = (*notes)[index];
+        note.lane = normalizedNoteLane(note.lane);
+        switch (note.lane) {
+        case NoteLane::Today:
+            note.order = todayOrder;
+            ++todayOrder;
+            break;
+        case NoteLane::Next:
+            note.order = nextOrder;
+            ++nextOrder;
+            break;
+        case NoteLane::Waiting:
+            note.order = waitingOrder;
+            ++waitingOrder;
+            break;
+        case NoteLane::Someday:
+            note.order = somedayOrder;
+            ++somedayOrder;
+            break;
+        }
     }
 }
 

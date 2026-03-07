@@ -101,9 +101,9 @@ void GlassNoteTests::serialization_acceptsLegacyNumericUiStyle() {
 
 void GlassNoteTests::controllerLogic_syncNoteOrderReindexes() {
     QVector<NoteItem> notes;
-    notes.append(NoteItem{QStringLiteral("a"), QStringLiteral("A"), 99, -1, 0});
-    notes.append(NoteItem{QStringLiteral("b"), QStringLiteral("B"), 88, -1, 0});
-    notes.append(NoteItem{QStringLiteral("c"), QStringLiteral("C"), 77, -1, 0});
+    notes.append(NoteItem{QStringLiteral("a"), QStringLiteral("A"), 99, NoteLane::Today, -1, 0});
+    notes.append(NoteItem{QStringLiteral("b"), QStringLiteral("B"), 88, NoteLane::Today, -1, 0});
+    notes.append(NoteItem{QStringLiteral("c"), QStringLiteral("C"), 77, NoteLane::Today, -1, 0});
 
     appstate::syncNoteOrder(&notes);
 

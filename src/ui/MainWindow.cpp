@@ -855,6 +855,7 @@ void MainWindow::initializeLayout() {
     connect(m_boardWidget, &NotesBoardWidget::quitRequested, this, &MainWindow::quitRequested);
     connect(m_boardWidget, &NotesBoardWidget::noteDeleteRequested, this, &MainWindow::noteDeleteRequested);
     connect(m_boardWidget, &NotesBoardWidget::noteHueChangeRequested, this, &MainWindow::noteHueChangeRequested);
+    connect(m_boardWidget, &NotesBoardWidget::noteLaneChangeRequested, this, &MainWindow::noteLaneChangeRequested);
     connect(m_boardWidget, &NotesBoardWidget::uiStyleChangeRequested, this, &MainWindow::uiStyleChangeRequested);
 }
 

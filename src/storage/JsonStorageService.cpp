@@ -22,8 +22,49 @@ namespace {
 
 Q_LOGGING_CATEGORY(lcStorage, "glassnote.storage")
 
-constexpr int kStorageVersion = 1;
+constexpr int kStorageVersion = 2;
 const auto kLatestBackupFileName = QStringLiteral("latest.json");
+
+QString noteLaneToStorageValue(NoteLane lane) {
+    switch (normalizedNoteLane(lane)) {
+    case NoteLane::Today:
+        return QStringLiteral("today");
+    case NoteLane::Next:
+        return QStringLiteral("next");
+    case NoteLane::Waiting:
+        return QStringLiteral("waiting");
+    case NoteLane::Someday:
+        return QStringLiteral("someday");
+    }
+    return QStringLiteral("today");
+}
+
+NoteLane noteLaneFromStorageValue(const QJsonValue &value) {
+    if (value.isString()) {
+        const QString lane = value.toString().trimmed().toLower();
+        if (lane == QStringLiteral("next")) {
+            return NoteLane::Next;
+        }
+        if (lane == QStringLiteral("waiting")) {
+            return NoteLane::Waiting;
+        }
+        if (lane == QStringLiteral("someday")) {
+            return NoteLane::Someday;
+        }
+        return NoteLane::Today;
+    }
+
+    switch (value.toInt(0)) {
+    case 1:
+        return NoteLane::Next;
+    case 2:
+        return NoteLane::Waiting;
+    case 3:
+        return NoteLane::Someday;
+    default:
+        return NoteLane::Today;
+    }
+}
 
 QString uiStyleToStorageValue(UiStyle uiStyle) {
     switch (uiStyle) {
@@ -107,6 +148,7 @@ QJsonObject noteToJson(const NoteItem &note) {
     object.insert(QStringLiteral("id"), note.id);
     object.insert(QStringLiteral("text"), note.text);
     object.insert(QStringLiteral("order"), note.order);
+    object.insert(QStringLiteral("lane"), noteLaneToStorageValue(note.lane));
     object.insert(QStringLiteral("hue"), note.hue);
     object.insert(QStringLiteral("reminderEpochMsec"), note.reminderEpochMsec);
     return object;
@@ -121,6 +163,7 @@ NoteItem noteFromJson(const QJsonObject &object, int fallbackOrder) {
 
     note.text = object.value(QStringLiteral("text")).toString();
     note.order = object.value(QStringLiteral("order")).toInt(fallbackOrder);
+    note.lane = noteLaneFromStorageValue(object.value(QStringLiteral("lane")));
     note.hue = object.value(QStringLiteral("hue")).toInt(-1);
 
     const QJsonValue reminderValue = object.value(QStringLiteral("reminderEpochMsec"));
@@ -486,6 +529,7 @@ AppState JsonStorageService::defaultState() const {
     note.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     note.text.clear();
     note.order = 0;
+    note.lane = NoteLane::Today;
     note.hue = -1;
     note.reminderEpochMsec = 0;
     state.notes.append(note);

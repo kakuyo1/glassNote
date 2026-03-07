@@ -7,6 +7,7 @@
 #include <QTextListFormat>
 #include <QWidget>
 
+#include "model/NoteItem.h"
 #include "model/UiStyle.h"
 
 class QLabel;
@@ -31,12 +32,14 @@ public:
     QString text() const;
     QString plainText() const;
     int hue() const;
+    NoteLane lane() const;
     qint64 reminderEpochMsec() const;
     UiStyle uiStyle() const;
 
     void setNoteId(const QString &noteId);
     void setText(const QString &text);
     void setHue(int hue);
+    void setLane(NoteLane lane);
     void setUiScale(qreal scale);
     void setBaseLayerOpacity(qreal opacity);
     void setExternalFileSyncEnabled(bool enabled);
@@ -70,6 +73,7 @@ signals:
     void quitRequested();
     void deleteRequested(const QString &noteId);
     void hueChangeRequested(const QString &noteId, int hue);
+    void laneChangeRequested(const QString &noteId, NoteLane lane);
     void uiStyleChangeRequested(UiStyle uiStyle);
 
 protected:
@@ -128,6 +132,7 @@ private:
     QToolButton *m_searchPrevButton = nullptr;
     QToolButton *m_searchNextButton = nullptr;
     int m_hue = -1;
+    NoteLane m_lane = NoteLane::Today;
     qreal m_uiScale = 1.0;
     qreal m_baseLayerOpacity = 1.0;
     qreal m_hoverProgress = 0.0;

@@ -44,6 +44,7 @@ private:
     void handleClearEmptyRequested();
     void handleDeleteNoteRequested(const QString &noteId);
     void handleNoteHueChangeRequested(const QString &noteId, int hue);
+    void handleNoteLaneChangeRequested(const QString &noteId, NoteLane lane);
     void handleUiStyleChangeRequested(UiStyle uiStyle);
     void handleScaleInRequested();
     void handleScaleOutRequested();

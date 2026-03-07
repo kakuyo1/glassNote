@@ -74,6 +74,7 @@ signals:
     void quitRequested();
     void noteDeleteRequested(const QString &noteId);
     void noteHueChangeRequested(const QString &noteId, int hue);
+    void noteLaneChangeRequested(const QString &noteId, NoteLane lane);
     void uiStyleChangeRequested(UiStyle uiStyle);
     void edgeDropCaptureRequested(const QString &payload);
     void quickCaptureDropRequested(const QString &text);

@@ -54,6 +54,7 @@ signals:
     void quitRequested();
     void noteDeleteRequested(const QString &noteId);
     void noteHueChangeRequested(const QString &noteId, int hue);
+    void noteLaneChangeRequested(const QString &noteId, NoteLane lane);
     void uiStyleChangeRequested(UiStyle uiStyle);
 
 protected:
@@ -62,6 +63,7 @@ private:
     void handleCardDeleteRequested(const QString &noteId);
 
     QVBoxLayout *m_layout = nullptr;
+    QVector<QWidget *> m_laneHeaders;
     QVector<NoteCardWidget *> m_cards;
     qreal m_uiScale = 1.0;
     qreal m_baseLayerOpacity = 1.0;

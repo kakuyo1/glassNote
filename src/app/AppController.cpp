@@ -305,6 +305,7 @@ void AppController::initialize() {
     connect(m_mainWindow, &MainWindow::clearEmptyRequested, this, &AppController::handleClearEmptyRequested);
     connect(m_mainWindow, &MainWindow::noteDeleteRequested, this, &AppController::handleDeleteNoteRequested);
     connect(m_mainWindow, &MainWindow::noteHueChangeRequested, this, &AppController::handleNoteHueChangeRequested);
+    connect(m_mainWindow, &MainWindow::noteLaneChangeRequested, this, &AppController::handleNoteLaneChangeRequested);
     connect(m_mainWindow, &MainWindow::uiStyleChangeRequested, this, &AppController::handleUiStyleChangeRequested);
     connect(m_mainWindow, &MainWindow::scaleInRequested, this, &AppController::handleScaleInRequested);
     connect(m_mainWindow, &MainWindow::scaleOutRequested, this, &AppController::handleScaleOutRequested);
@@ -495,6 +496,19 @@ void AppController::handleNoteHueChangeRequested(const QString &noteId, int hue)
     for (NoteItem &note : m_state.notes) {
         if (note.id == noteId) {
             note.hue = hue;
+            break;
+        }
+    }
+
+    refreshWindow();
+    m_autoSaveCoordinator->requestSave();
+}
+
+void AppController::handleNoteLaneChangeRequested(const QString &noteId, NoteLane lane) {
+    const NoteLane normalizedLane = normalizedNoteLane(lane);
+    for (NoteItem &note : m_state.notes) {
+        if (note.id == noteId) {
+            note.lane = normalizedLane;
             break;
         }
     }
