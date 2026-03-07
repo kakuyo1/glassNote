@@ -1,6 +1,7 @@
 #include "app/AppController.h"
 
 #include <QDateTime>
+#include <QDate>
 #include <QDir>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -15,7 +16,6 @@
 #include <QFont>
 #include <QGuiApplication>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -104,6 +104,98 @@ bool promptReminderDateTime(QWidget *parent, const QDateTime &initialValue, qint
     return true;
 }
 
+QDate latestSnapshotDate(const QVector<DailyTimelineSnapshot> &snapshots) {
+    QDate latestDate;
+    for (const DailyTimelineSnapshot &snapshot : snapshots) {
+        const QDate parsedDate = QDate::fromString(snapshot.dateKey, QStringLiteral("yyyy-MM-dd"));
+        if (!parsedDate.isValid()) {
+            continue;
+        }
+        if (!latestDate.isValid() || parsedDate > latestDate) {
+            latestDate = parsedDate;
+        }
+    }
+    return latestDate;
+}
+
+QString timelineSnapshotHintText(const QVector<DailyTimelineSnapshot> &snapshots) {
+    QDate oldestDate;
+    QDate latestDate;
+    int validSnapshotCount = 0;
+
+    for (const DailyTimelineSnapshot &snapshot : snapshots) {
+        const QDate parsedDate = QDate::fromString(snapshot.dateKey, QStringLiteral("yyyy-MM-dd"));
+        if (!parsedDate.isValid()) {
+            continue;
+        }
+
+        ++validSnapshotCount;
+        if (!oldestDate.isValid() || parsedDate < oldestDate) {
+            oldestDate = parsedDate;
+        }
+        if (!latestDate.isValid() || parsedDate > latestDate) {
+            latestDate = parsedDate;
+        }
+    }
+
+    if (validSnapshotCount <= 0 || !oldestDate.isValid() || !latestDate.isValid()) {
+        return QStringLiteral("当前暂无历史快照，回放前请先保存至少一天的事项。\n"
+                              "若所选日期无快照，将自动回放该日期之前最近的一次快照。");
+    }
+
+    return QStringLiteral("已记录快照范围：%1 到 %2（%3 条）。\n"
+                          "若所选日期无快照，将自动回放该日期之前最近的一次快照。")
+        .arg(oldestDate.toString(QStringLiteral("yyyy-MM-dd")),
+             latestDate.toString(QStringLiteral("yyyy-MM-dd"))
+             , QString::number(validSnapshotCount));
+}
+
+bool promptTimelineReplayDate(QWidget *parent, const AppState &state, QString *selectedDateKey) {
+    if (selectedDateKey == nullptr) {
+        return false;
+    }
+
+    const QDate fallbackDate = latestSnapshotDate(state.timelineSnapshots);
+    const QDate initialDate = fallbackDate.isValid() ? fallbackDate : QDate::currentDate();
+
+    QDialog dialog(parent);
+    dialog.setWindowTitle(QStringLiteral("时间轴回放（按日期）"));
+
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *hintLabel = new QLabel(QStringLiteral("选择要回放的日期："), &dialog);
+    hintLabel->setWordWrap(true);
+    layout->addWidget(hintLabel);
+
+    auto *rangeLabel = new QLabel(timelineSnapshotHintText(state.timelineSnapshots), &dialog);
+    rangeLabel->setWordWrap(true);
+    layout->addWidget(rangeLabel);
+
+    auto *dateEdit = new QDateEdit(&dialog);
+    dateEdit->setCalendarPopup(true);
+    dateEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
+    dateEdit->setDate(initialDate);
+    layout->addWidget(dateEdit);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    if (QAbstractButton *okButton = buttons->button(QDialogButtonBox::Ok)) {
+        okButton->setText(QStringLiteral("回放"));
+    }
+    if (QAbstractButton *cancelButton = buttons->button(QDialogButtonBox::Cancel)) {
+        cancelButton->setText(QStringLiteral("取消"));
+    }
+    layout->addWidget(buttons);
+
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return false;
+    }
+
+    *selectedDateKey = dateEdit->date().toString(QStringLiteral("yyyy-MM-dd"));
+    return true;
+}
+
 bool promptQuickCaptureText(QWidget *parent,
                             UiStyle uiStyle,
                             QString *capturedText,
@@ -124,7 +216,12 @@ bool promptQuickCaptureText(QWidget *parent,
     actionFill.setAlpha(qBound(80, actionFill.alpha() + 44, 220));
     const bool actionIsDark = actionFill.lightness() < 142;
     const QColor selectionText = actionIsDark ? QColor(255, 255, 255, 242) : QColor(24, 28, 34, 232);
-    const int dialogRadius = uiStyle == UiStyle::Pixel ? 10 : 16;
+    const bool pixelStyle = uiStyle == UiStyle::Pixel;
+    const int dialogRadius = pixelStyle ? 3 : 16;
+    const int controlRadius = pixelStyle ? 1 : 9;
+    const QString terminalFont = pixelStyle
+                                     ? QStringLiteral("font-family: 'Consolas', 'Courier New', monospace;")
+                                     : QString();
 
     QDialog dialog(parent, Qt::Dialog | Qt::FramelessWindowHint);
     dialog.setWindowTitle(QStringLiteral("极速捕获"));
@@ -164,19 +261,23 @@ bool promptQuickCaptureText(QWidget *parent,
         QStringLiteral("QDialog#quickCaptureDialog {"
                        "border: 1px solid %1;"
                        "border-radius: %10px;"
+                       "%12"
                        "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 %2,stop:1 %3);"
                        "}"
                        "QLabel#quickCaptureTitle {"
+                       "%12"
                        "color: %4;"
                        "}"
                        "QLabel#quickCaptureHint {"
+                       "%12"
                        "color: %5;"
                        "}"
                        "QLineEdit {"
+                       "%12"
                        "color: %4;"
                        "background: %6;"
                        "border: 1px solid %1;"
-                       "border-radius: 9px;"
+                       "border-radius: %11px;"
                        "padding: 6px 10px;"
                        "selection-background-color: %7;"
                        "selection-color: %8;"
@@ -185,8 +286,9 @@ bool promptQuickCaptureText(QWidget *parent,
                        "border: 1px solid %7;"
                        "}"
                        "QPushButton {"
+                       "%12"
                        "color: %4;"
-                       "border-radius: 9px;"
+                       "border-radius: %11px;"
                        "padding: 6px 14px;"
                        "border: 1px solid %1;"
                        "background: transparent;"
@@ -207,7 +309,9 @@ bool promptQuickCaptureText(QWidget *parent,
             .arg(actionFill.name(QColor::HexArgb))
             .arg(selectionText.name(QColor::HexArgb))
             .arg(palette.highlightTop.name(QColor::HexArgb))
-            .arg(dialogRadius));
+            .arg(dialogRadius)
+            .arg(controlRadius)
+            .arg(terminalFont));
 
     layout->addWidget(title);
     layout->addWidget(hint);
@@ -305,6 +409,10 @@ void AppController::initialize() {
     connect(m_mainWindow, &MainWindow::clearEmptyRequested, this, &AppController::handleClearEmptyRequested);
     connect(m_mainWindow, &MainWindow::noteDeleteRequested, this, &AppController::handleDeleteNoteRequested);
     connect(m_mainWindow, &MainWindow::noteHueChangeRequested, this, &AppController::handleNoteHueChangeRequested);
+    connect(m_mainWindow,
+            &MainWindow::noteStickerChangeRequested,
+            this,
+            &AppController::handleNoteStickerChangeRequested);
     connect(m_mainWindow, &MainWindow::noteLaneChangeRequested, this, &AppController::handleNoteLaneChangeRequested);
     connect(m_mainWindow, &MainWindow::uiStyleChangeRequested, this, &AppController::handleUiStyleChangeRequested);
     connect(m_mainWindow, &MainWindow::scaleInRequested, this, &AppController::handleScaleInRequested);
@@ -329,6 +437,7 @@ void AppController::initialize() {
             &MainWindow::reminderClearedRequested,
             this,
             &AppController::handleReminderClearedRequested);
+    connect(m_mainWindow, &MainWindow::timelineReplayRequested, this, &AppController::handleTimelineReplayRequested);
     connect(m_mainWindow, &MainWindow::openStorageDirectoryRequested, this, &AppController::openStorageDirectory);
     connect(m_mainWindow, &MainWindow::quitRequested, this, &AppController::quitApplication);
     connect(m_mainWindow,
@@ -496,6 +605,18 @@ void AppController::handleNoteHueChangeRequested(const QString &noteId, int hue)
     for (NoteItem &note : m_state.notes) {
         if (note.id == noteId) {
             note.hue = hue;
+            break;
+        }
+    }
+
+    refreshWindow();
+    m_autoSaveCoordinator->requestSave();
+}
+
+void AppController::handleNoteStickerChangeRequested(const QString &noteId, const QString &sticker) {
+    for (NoteItem &note : m_state.notes) {
+        if (note.id == noteId) {
+            note.sticker = sticker;
             break;
         }
     }
@@ -849,6 +970,61 @@ void AppController::handleReminderClearedRequested(const QString &noteId) {
         m_autoSaveCoordinator->requestSave();
         return;
     }
+}
+
+void AppController::handleTimelineReplayRequested() {
+    if (m_mainWindow == nullptr) {
+        return;
+    }
+
+    QString dateKey;
+    if (!promptTimelineReplayDate(m_mainWindow, m_state, &dateKey)) {
+        return;
+    }
+
+    QVector<NoteItem> resolvedNotes;
+    QString resolvedDateKey;
+    if (!appstate::resolveTimelineNotesForDate(m_state, dateKey, &resolvedNotes, &resolvedDateKey)) {
+        QMessageBox::information(m_mainWindow,
+                                 QStringLiteral("时间轴回放"),
+                                 QStringLiteral("未找到可回放快照，请先保存至少一天的事项。"));
+        return;
+    }
+
+    const QString confirmText = resolvedDateKey == dateKey
+                                    ? QStringLiteral("将回放 %1 的快照并覆盖当前事项，是否继续？").arg(resolvedDateKey)
+                                    : QStringLiteral("%1 无快照，将回放最近历史快照 %2 并覆盖当前事项，是否继续？")
+                                          .arg(dateKey, resolvedDateKey);
+    QMessageBox confirmBox(QMessageBox::Question,
+                           QStringLiteral("确认时间轴回放"),
+                           confirmText,
+                           QMessageBox::NoButton,
+                           m_mainWindow);
+    QPushButton *replayButton = confirmBox.addButton(QStringLiteral("开始回放"), QMessageBox::AcceptRole);
+    confirmBox.addButton(QStringLiteral("取消"), QMessageBox::RejectRole);
+    confirmBox.setDefaultButton(replayButton);
+    confirmBox.exec();
+    if (confirmBox.clickedButton() != replayButton) {
+        return;
+    }
+
+    m_state.notes = resolvedNotes;
+    ensureAtLeastOneNote();
+    refreshWindow();
+    scheduleNextReminder();
+    m_autoSaveCoordinator->requestSave();
+
+    if (resolvedDateKey == dateKey) {
+        QMessageBox::information(m_mainWindow,
+                                 QStringLiteral("时间轴回放"),
+                                 QStringLiteral("已回放 %1 的快照。").arg(resolvedDateKey));
+        return;
+    }
+
+    QMessageBox::information(m_mainWindow,
+                             QStringLiteral("时间轴回放"),
+                             QStringLiteral("%1 无快照，已回放最近历史快照：%2。")
+                                 .arg(dateKey, resolvedDateKey));
 }
 
 void AppController::handleReminderTimeout() {
@@ -1306,6 +1482,8 @@ QString AppController::reminderPreviewText(const NoteItem &note) const {
 
 void AppController::saveState() {
     updateStateFromWindow();
+    appstate::recordDailyTimelineSnapshot(&m_state,
+                                          QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd")));
     QString errorMessage;
     if (!m_storageService.save(m_state, &errorMessage)) {
         qCCritical(lcAppController) << "save failed" << errorMessage;

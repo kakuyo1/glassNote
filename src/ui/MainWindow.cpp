@@ -127,7 +127,7 @@ int scrollBarWidthForScale(qreal scale) {
 }
 
 bool styleUsesWindowBackdrop(UiStyle uiStyle) {
-    return uiStyle == UiStyle::Glass || uiStyle == UiStyle::Mist;
+    return uiStyle == UiStyle::Glass || uiStyle == UiStyle::Mist || uiStyle == UiStyle::Sunrise;
 }
 
 constexpr int kEdgeDropCaptureZonePx = 36;
@@ -536,7 +536,30 @@ void MainWindow::paintEvent(QPaintEvent *event) {
     painter.setRenderHint(QPainter::Antialiasing, true);
 
     const QRectF frameRect = rect().adjusted(1.0, 1.0, -1.0, -1.0);
-    const qreal radius = (m_uiStyle == UiStyle::Pixel ? 8.0 : 26.0) * m_uiScale;
+    qreal radiusBase = 26.0;
+    switch (m_uiStyle) {
+    case UiStyle::Pixel:
+        radiusBase = 3.0;
+        break;
+    case UiStyle::Graphite:
+    case UiStyle::Neon:
+        radiusBase = 16.0;
+        break;
+    case UiStyle::Mist:
+    case UiStyle::Meadow:
+        radiusBase = 20.0;
+        break;
+    case UiStyle::Sunrise:
+    case UiStyle::Paper:
+    case UiStyle::Clay:
+        radiusBase = 22.0;
+        break;
+    case UiStyle::Glass:
+    default:
+        radiusBase = 24.0;
+        break;
+    }
+    const qreal radius = radiusBase * m_uiScale;
     const qreal alphaScale = qBound(constants::kMinBaseLayerOpacity,
                                     m_baseLayerOpacity,
                                     constants::kMaxBaseLayerOpacity);
@@ -562,72 +585,114 @@ void MainWindow::paintEvent(QPaintEvent *event) {
     switch (m_uiStyle) {
     case UiStyle::Glass: {
         QLinearGradient sheen(frameRect.topLeft(), frameRect.bottomLeft());
-        sheen.setColorAt(0.0, QColor(255, 255, 255, scaledAlpha(38)));
-        sheen.setColorAt(0.45, QColor(255, 255, 255, scaledAlpha(14)));
-        sheen.setColorAt(1.0, QColor(255, 255, 255, scaledAlpha(4)));
+        sheen.setColorAt(0.0, QColor(238, 248, 255, scaledAlpha(26)));
+        sheen.setColorAt(0.48, QColor(204, 222, 242, scaledAlpha(10)));
+        sheen.setColorAt(1.0, QColor(24, 38, 58, scaledAlpha(14)));
         painter.fillPath(clipPath, sheen);
 
-        QRadialGradient centerGlow(frameRect.center().x(),
-                                   frameRect.top() + (frameRect.height() * 0.2),
-                                   frameRect.width() * 0.8);
-        centerGlow.setColorAt(0.0, QColor(255, 255, 255, scaledAlpha(20)));
-        centerGlow.setColorAt(1.0, QColor(255, 255, 255, 0));
-        painter.fillPath(clipPath, centerGlow);
+        QLinearGradient sideGlow(frameRect.topLeft(), frameRect.topRight());
+        sideGlow.setColorAt(0.0, QColor(224, 240, 255, scaledAlpha(14)));
+        sideGlow.setColorAt(0.5, QColor(224, 240, 255, 0));
+        sideGlow.setColorAt(1.0, QColor(180, 210, 238, scaledAlpha(10)));
+        painter.fillPath(clipPath, sideGlow);
         break;
     }
     case UiStyle::Mist: {
-        QLinearGradient haze(frameRect.topLeft(), frameRect.bottomLeft());
-        haze.setColorAt(0.0, QColor(244, 251, 255, scaledAlpha(46)));
-        haze.setColorAt(0.55, QColor(228, 242, 252, scaledAlpha(20)));
-        haze.setColorAt(1.0, QColor(218, 232, 246, scaledAlpha(10)));
-        painter.fillPath(clipPath, haze);
+        QLinearGradient frost(frameRect.topLeft(), frameRect.bottomLeft());
+        frost.setColorAt(0.0, QColor(190, 214, 238, scaledAlpha(26)));
+        frost.setColorAt(0.35, QColor(146, 178, 208, scaledAlpha(14)));
+        frost.setColorAt(1.0, QColor(92, 126, 162, scaledAlpha(8)));
+        painter.fillPath(clipPath, frost);
 
-        QLinearGradient veil(frameRect.topLeft(), frameRect.topRight());
-        veil.setColorAt(0.0, QColor(240, 248, 255, scaledAlpha(24)));
-        veil.setColorAt(0.5, QColor(240, 248, 255, 0));
-        veil.setColorAt(1.0, QColor(240, 248, 255, scaledAlpha(12)));
+        QLinearGradient veil(frameRect.topLeft(), frameRect.bottomLeft());
+        veil.setColorAt(0.0, QColor(255, 255, 255, scaledAlpha(8)));
+        veil.setColorAt(0.5, QColor(255, 255, 255, 0));
+        veil.setColorAt(1.0, QColor(4, 8, 14, scaledAlpha(34)));
         painter.fillPath(clipPath, veil);
+
+        painter.setPen(QPen(QColor(170, 196, 222, scaledAlpha(14)), 1.0));
+        const int noiseStep = qMax(4, static_cast<int>(5.0 * m_uiScale));
+        for (int y = static_cast<int>(frameRect.top()) + 3; y < static_cast<int>(frameRect.bottom()) - 2; y += noiseStep) {
+            for (int x = static_cast<int>(frameRect.left()) + 3; x < static_cast<int>(frameRect.right()) - 2; x += noiseStep) {
+                const int hash = ((x * 31) ^ (y * 17)) & 63;
+                if (hash <= 1) {
+                    painter.drawPoint(x, y);
+                }
+            }
+        }
         break;
     }
     case UiStyle::Sunrise: {
-        QRadialGradient warm(frameRect.left() + (frameRect.width() * 0.18),
-                             frameRect.top() + (frameRect.height() * 0.14),
-                             frameRect.width() * 0.9);
-        warm.setColorAt(0.0, QColor(255, 225, 170, scaledAlpha(42)));
-        warm.setColorAt(0.45, QColor(255, 196, 132, scaledAlpha(20)));
-        warm.setColorAt(1.0, QColor(255, 170, 110, 0));
-        painter.fillPath(clipPath, warm);
+        QLinearGradient sky(frameRect.topLeft(), frameRect.bottomLeft());
+        sky.setColorAt(0.0, QColor(98, 76, 130, scaledAlpha(42)));
+        sky.setColorAt(0.46, QColor(212, 126, 144, scaledAlpha(28)));
+        sky.setColorAt(1.0, QColor(252, 164, 112, scaledAlpha(18)));
+        painter.fillPath(clipPath, sky);
 
-        QLinearGradient depth(frameRect.topLeft(), frameRect.bottomLeft());
-        depth.setColorAt(0.0, QColor(255, 255, 255, scaledAlpha(8)));
-        depth.setColorAt(1.0, QColor(120, 62, 26, scaledAlpha(18)));
-        painter.fillPath(clipPath, depth);
+        QRadialGradient sun(frameRect.center().x(),
+                            frameRect.bottom() - (frameRect.height() * 0.08),
+                            frameRect.width() * 0.9);
+        sun.setColorAt(0.0, QColor(255, 228, 166, scaledAlpha(60)));
+        sun.setColorAt(0.4, QColor(255, 180, 120, scaledAlpha(22)));
+        sun.setColorAt(1.0, QColor(255, 146, 96, 0));
+        painter.fillPath(clipPath, sun);
+
+        QLinearGradient glaze(frameRect.topLeft(), frameRect.bottomLeft());
+        glaze.setColorAt(0.0, QColor(255, 255, 255, scaledAlpha(10)));
+        glaze.setColorAt(0.6, QColor(255, 240, 220, scaledAlpha(6)));
+        glaze.setColorAt(1.0, QColor(60, 34, 28, scaledAlpha(20)));
+        painter.fillPath(clipPath, glaze);
+
+        painter.setPen(QPen(QColor(255, 224, 198, scaledAlpha(12)), 1.0));
+        const int noiseStep = qMax(4, static_cast<int>(5.0 * m_uiScale));
+        for (int y = static_cast<int>(frameRect.top()) + 2; y < static_cast<int>(frameRect.bottom()) - 2; y += noiseStep) {
+            for (int x = static_cast<int>(frameRect.left()) + 2; x < static_cast<int>(frameRect.right()) - 2; x += noiseStep) {
+                const int hash = ((x * 17) ^ (y * 29)) & 63;
+                if (hash <= 1) {
+                    painter.drawPoint(x, y);
+                }
+            }
+        }
         break;
     }
     case UiStyle::Meadow: {
-        QRadialGradient canopy(frameRect.right() - (frameRect.width() * 0.2),
-                               frameRect.top() + (frameRect.height() * 0.2),
-                               frameRect.width() * 0.85);
-        canopy.setColorAt(0.0, QColor(190, 232, 198, scaledAlpha(34)));
-        canopy.setColorAt(0.55, QColor(144, 198, 162, scaledAlpha(16)));
-        canopy.setColorAt(1.0, QColor(84, 132, 100, 0));
+        QRadialGradient canopy(frameRect.right() - (frameRect.width() * 0.24),
+                               frameRect.top() + (frameRect.height() * 0.18),
+                               frameRect.width() * 0.9);
+        canopy.setColorAt(0.0, QColor(164, 220, 176, scaledAlpha(34)));
+        canopy.setColorAt(0.55, QColor(96, 160, 120, scaledAlpha(16)));
+        canopy.setColorAt(1.0, QColor(32, 66, 48, 0));
         painter.fillPath(clipPath, canopy);
 
         QLinearGradient depth(frameRect.topLeft(), frameRect.bottomLeft());
-        depth.setColorAt(0.0, QColor(255, 255, 255, scaledAlpha(8)));
-        depth.setColorAt(1.0, QColor(26, 76, 48, scaledAlpha(16)));
+        depth.setColorAt(0.0, QColor(234, 248, 236, scaledAlpha(8)));
+        depth.setColorAt(1.0, QColor(20, 62, 40, scaledAlpha(20)));
         painter.fillPath(clipPath, depth);
         break;
     }
     case UiStyle::Graphite: {
         QLinearGradient sheen(frameRect.topLeft(), frameRect.bottomLeft());
-        sheen.setColorAt(0.0, QColor(255, 255, 255, scaledAlpha(30)));
-        sheen.setColorAt(0.4, QColor(255, 255, 255, scaledAlpha(10)));
-        sheen.setColorAt(1.0, QColor(0, 0, 0, scaledAlpha(28)));
+        sheen.setColorAt(0.0, QColor(214, 224, 242, scaledAlpha(18)));
+        sheen.setColorAt(0.4, QColor(140, 156, 182, scaledAlpha(8)));
+        sheen.setColorAt(1.0, QColor(0, 0, 0, scaledAlpha(34)));
         painter.fillPath(clipPath, sheen);
+
+        painter.setPen(QPen(QColor(166, 182, 206, scaledAlpha(8)), 1.0));
+        const int lineStep = qMax(5, static_cast<int>(7.0 * m_uiScale));
+        for (int y = static_cast<int>(frameRect.top()) + lineStep; y < static_cast<int>(frameRect.bottom()); y += lineStep) {
+            painter.drawLine(static_cast<int>(frameRect.left()) + 2,
+                             y,
+                             static_cast<int>(frameRect.right()) - 2,
+                             y);
+        }
         break;
     }
     case UiStyle::Paper: {
+        QLinearGradient paperDepth(frameRect.topLeft(), frameRect.bottomLeft());
+        paperDepth.setColorAt(0.0, QColor(255, 252, 242, scaledAlpha(10)));
+        paperDepth.setColorAt(1.0, QColor(130, 102, 70, scaledAlpha(12)));
+        painter.fillPath(clipPath, paperDepth);
+
         QColor grain = QColor(122, 98, 68, scaledAlpha(24));
         painter.setPen(QPen(grain, 1.0));
         const int step = qMax(5, static_cast<int>(7.0 * m_uiScale));
@@ -640,41 +705,67 @@ void MainWindow::paintEvent(QPaintEvent *event) {
         break;
     }
     case UiStyle::Pixel: {
-        painter.setPen(QPen(QColor(255, 255, 255, scaledAlpha(26)), 1.0));
-        const int cell = qMax(5, static_cast<int>(6.0 * m_uiScale));
+        painter.fillPath(clipPath, QColor(6, 10, 7, scaledAlpha(188)));
+
+        const int cell = qMax(6, static_cast<int>(10.0 * m_uiScale));
+        painter.setPen(QPen(QColor(72, 132, 82, scaledAlpha(34)), 1.0));
         for (int y = static_cast<int>(frameRect.top()) + cell; y < static_cast<int>(frameRect.bottom()); y += cell) {
-            painter.drawLine(static_cast<int>(frameRect.left()) + 2,
+            painter.drawLine(static_cast<int>(frameRect.left()) + 1,
                              y,
-                             static_cast<int>(frameRect.right()) - 2,
+                             static_cast<int>(frameRect.right()) - 1,
                              y);
         }
         for (int x = static_cast<int>(frameRect.left()) + cell; x < static_cast<int>(frameRect.right()); x += cell) {
             painter.drawLine(x,
-                             static_cast<int>(frameRect.top()) + 2,
+                             static_cast<int>(frameRect.top()) + 1,
                              x,
-                             static_cast<int>(frameRect.bottom()) - 2);
+                             static_cast<int>(frameRect.bottom()) - 1);
         }
+
+        painter.setPen(QPen(QColor(108, 182, 118, scaledAlpha(26)), 1.0));
+        const int noiseStep = qMax(3, static_cast<int>(4.0 * m_uiScale));
+        for (int y = static_cast<int>(frameRect.top()) + 2; y < static_cast<int>(frameRect.bottom()) - 1; y += noiseStep) {
+            for (int x = static_cast<int>(frameRect.left()) + 2; x < static_cast<int>(frameRect.right()) - 1; x += noiseStep) {
+                const int hash = ((x * 13) ^ (y * 17)) & 31;
+                if (hash <= 1) {
+                    painter.drawPoint(x, y);
+                }
+            }
+        }
+
+        QLinearGradient scanline(frameRect.topLeft(), frameRect.bottomLeft());
+        scanline.setColorAt(0.0, QColor(160, 255, 170, scaledAlpha(12)));
+        scanline.setColorAt(0.5, QColor(40, 70, 46, scaledAlpha(4)));
+        scanline.setColorAt(1.0, QColor(6, 14, 8, 0));
+        painter.fillPath(clipPath, scanline);
         break;
     }
     case UiStyle::Neon: {
         QRadialGradient pulse(frameRect.center().x(), frameRect.center().y(), frameRect.width() * 0.9);
-        pulse.setColorAt(0.0, QColor(214, 118, 255, scaledAlpha(34)));
-        pulse.setColorAt(0.5, QColor(102, 224, 255, scaledAlpha(16)));
+        pulse.setColorAt(0.0, QColor(224, 128, 255, scaledAlpha(38)));
+        pulse.setColorAt(0.5, QColor(98, 230, 255, scaledAlpha(18)));
         pulse.setColorAt(1.0, QColor(20, 12, 36, 0));
         painter.fillPath(clipPath, pulse);
 
         QLinearGradient edge(frameRect.topLeft(), frameRect.bottomLeft());
-        edge.setColorAt(0.0, QColor(255, 184, 255, scaledAlpha(18)));
-        edge.setColorAt(1.0, QColor(0, 255, 240, scaledAlpha(10)));
+        edge.setColorAt(0.0, QColor(255, 184, 255, scaledAlpha(22)));
+        edge.setColorAt(1.0, QColor(0, 255, 240, scaledAlpha(12)));
         painter.fillPath(clipPath, edge);
         break;
     }
     case UiStyle::Clay: {
         QLinearGradient matte(frameRect.topLeft(), frameRect.bottomLeft());
-        matte.setColorAt(0.0, QColor(255, 240, 222, scaledAlpha(30)));
-        matte.setColorAt(0.4, QColor(224, 186, 150, scaledAlpha(14)));
-        matte.setColorAt(1.0, QColor(112, 70, 48, scaledAlpha(18)));
+        matte.setColorAt(0.0, QColor(255, 238, 218, scaledAlpha(34)));
+        matte.setColorAt(0.4, QColor(222, 182, 146, scaledAlpha(16)));
+        matte.setColorAt(1.0, QColor(108, 68, 46, scaledAlpha(22)));
         painter.fillPath(clipPath, matte);
+
+        QRadialGradient soft(frameRect.left() + (frameRect.width() * 0.28),
+                             frameRect.top() + (frameRect.height() * 0.2),
+                             frameRect.width() * 0.84);
+        soft.setColorAt(0.0, QColor(255, 228, 196, scaledAlpha(18)));
+        soft.setColorAt(1.0, QColor(188, 120, 82, 0));
+        painter.fillPath(clipPath, soft);
         break;
     }
     }
@@ -851,10 +942,15 @@ void MainWindow::initializeLayout() {
             &NotesBoardWidget::reminderClearedRequested,
             this,
             &MainWindow::reminderClearedRequested);
+    connect(m_boardWidget, &NotesBoardWidget::timelineReplayRequested, this, &MainWindow::timelineReplayRequested);
     connect(m_boardWidget, &NotesBoardWidget::openStorageDirectoryRequested, this, &MainWindow::openStorageDirectoryRequested);
     connect(m_boardWidget, &NotesBoardWidget::quitRequested, this, &MainWindow::quitRequested);
     connect(m_boardWidget, &NotesBoardWidget::noteDeleteRequested, this, &MainWindow::noteDeleteRequested);
     connect(m_boardWidget, &NotesBoardWidget::noteHueChangeRequested, this, &MainWindow::noteHueChangeRequested);
+    connect(m_boardWidget,
+            &NotesBoardWidget::noteStickerChangeRequested,
+            this,
+            &MainWindow::noteStickerChangeRequested);
     connect(m_boardWidget, &NotesBoardWidget::noteLaneChangeRequested, this, &MainWindow::noteLaneChangeRequested);
     connect(m_boardWidget, &NotesBoardWidget::uiStyleChangeRequested, this, &MainWindow::uiStyleChangeRequested);
 }

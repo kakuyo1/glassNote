@@ -57,6 +57,7 @@ struct NoteItem {
     int order = 0;
     NoteLane lane = NoteLane::Today;
     int hue = -1;
+    QString sticker;
     qint64 reminderEpochMsec = 0;
 };
 

@@ -30,6 +30,7 @@ AppState makeState(int noteCount) {
         item.text = QStringLiteral("note-%1").arg(index);
         item.order = index;
         item.hue = (index * 13) % 360;
+        item.sticker = (index % 2 == 0) ? QStringLiteral("⭐") : QStringLiteral("🔥");
         item.reminderEpochMsec = 1700000000000LL + static_cast<qint64>(index);
         state.notes.append(item);
     }
@@ -62,6 +63,7 @@ void GlassNoteIntegrationTests::loadEditSaveReloadFlow() {
     QCOMPARE(loaded.status, JsonStorageService::LoadStatus::Success);
     QCOMPARE(loaded.state.notes.size(), 2);
     QCOMPARE(loaded.state.uiStyle, UiStyle::Neon);
+    QCOMPARE(loaded.state.notes.at(0).sticker, QStringLiteral("⭐"));
 
     loaded.state.notes[0].text = QStringLiteral("edited-text");
     loaded.state.notes.append(appstate::createEmptyNote(0));
@@ -76,6 +78,7 @@ void GlassNoteIntegrationTests::loadEditSaveReloadFlow() {
     QCOMPARE(reloaded.state.notes.at(0).text, QStringLiteral("edited-text"));
     QCOMPARE(reloaded.state.notes.at(2).text, QStringLiteral("new-note"));
     QCOMPARE(reloaded.state.notes.at(2).order, 2);
+    QCOMPARE(reloaded.state.notes.at(0).sticker, QStringLiteral("⭐"));
     QCOMPARE(reloaded.state.uiStyle, UiStyle::Neon);
 }
 

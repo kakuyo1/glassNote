@@ -44,6 +44,7 @@ private:
     void handleClearEmptyRequested();
     void handleDeleteNoteRequested(const QString &noteId);
     void handleNoteHueChangeRequested(const QString &noteId, int hue);
+    void handleNoteStickerChangeRequested(const QString &noteId, const QString &sticker);
     void handleNoteLaneChangeRequested(const QString &noteId, NoteLane lane);
     void handleUiStyleChangeRequested(UiStyle uiStyle);
     void handleScaleInRequested();
@@ -59,6 +60,7 @@ private:
     void handleWindowLockToggled(bool enabled);
     void handleReminderSetRequested(const QString &noteId);
     void handleReminderClearedRequested(const QString &noteId);
+    void handleTimelineReplayRequested();
     void handleStorageFileChanged(const QString &filePath);
     void handleReminderTimeout();
     void handleQuickCaptureRequested();

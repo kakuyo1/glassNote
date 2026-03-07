@@ -15,6 +15,7 @@ class QKeyEvent;
 class QLineEdit;
 class QPropertyAnimation;
 class QAction;
+class QGraphicsDropShadowEffect;
 class QMenu;
 class QTextEdit;
 class QToolButton;
@@ -32,6 +33,7 @@ public:
     QString text() const;
     QString plainText() const;
     int hue() const;
+    QString sticker() const;
     NoteLane lane() const;
     qint64 reminderEpochMsec() const;
     UiStyle uiStyle() const;
@@ -39,6 +41,7 @@ public:
     void setNoteId(const QString &noteId);
     void setText(const QString &text);
     void setHue(int hue);
+    void setSticker(const QString &sticker);
     void setLane(NoteLane lane);
     void setUiScale(qreal scale);
     void setBaseLayerOpacity(qreal opacity);
@@ -69,10 +72,12 @@ signals:
     void windowLockToggled(bool enabled);
     void reminderSetRequested(const QString &noteId);
     void reminderClearedRequested(const QString &noteId);
+    void timelineReplayRequested();
     void openStorageDirectoryRequested();
     void quitRequested();
     void deleteRequested(const QString &noteId);
     void hueChangeRequested(const QString &noteId, int hue);
+    void stickerChangeRequested(const QString &noteId, const QString &sticker);
     void laneChangeRequested(const QString &noteId, NoteLane lane);
     void uiStyleChangeRequested(UiStyle uiStyle);
 
@@ -111,6 +116,7 @@ private:
 
     QString m_noteId;
     QLabel *m_displayLabel = nullptr;
+    QGraphicsDropShadowEffect *m_displayGlowEffect = nullptr;
     QWidget *m_formatBar = nullptr;
     QTextEdit *m_editor = nullptr;
     QToolButton *m_boldButton = nullptr;
@@ -132,6 +138,7 @@ private:
     QToolButton *m_searchPrevButton = nullptr;
     QToolButton *m_searchNextButton = nullptr;
     int m_hue = -1;
+    QString m_sticker;
     NoteLane m_lane = NoteLane::Today;
     qreal m_uiScale = 1.0;
     qreal m_baseLayerOpacity = 1.0;

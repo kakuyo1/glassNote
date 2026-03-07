@@ -1,6 +1,7 @@
 #include "ui/NotesBoardWidget.h"
 
 #include <algorithm>
+#include <QApplication>
 #include <QHash>
 #include <QFont>
 #include <QFontMetrics>
@@ -49,13 +50,74 @@ bool shouldAnimateReposition(qreal uiScale, int cardCount, const QPoint &from, c
     return distance >= minDistance && distance <= maxDistance;
 }
 
-QLabel *createLaneHeaderWidget(NoteLane lane, QWidget *parent, qreal uiScale) {
-    auto *header = new QLabel(noteLaneDisplayName(lane), parent);
-    QFont headerFont = header->font();
+void applyLaneHeaderStyle(QLabel *header, UiStyle uiStyle, qreal uiScale) {
+    if (header == nullptr) {
+        return;
+    }
+
+    QFont headerFont = QApplication::font();
     headerFont.setBold(true);
     headerFont.setPointSizeF(10.0 * uiScale);
+    if (uiStyle == UiStyle::Pixel) {
+        headerFont.setFamily(QStringLiteral("Consolas"));
+        headerFont.setStyleHint(QFont::TypeWriter);
+        headerFont.setFixedPitch(true);
+    } else {
+        headerFont.setFamily(QStringLiteral("Segoe UI"));
+        headerFont.setStyleHint(QFont::SansSerif);
+        headerFont.setFixedPitch(false);
+    }
     header->setFont(headerFont);
-    header->setStyleSheet(QStringLiteral("QLabel { color: rgba(255, 255, 255, 172); padding: 4px 2px 2px 2px; }") );
+
+    if (uiStyle == UiStyle::Pixel) {
+        header->setStyleSheet(QStringLiteral(
+            "QLabel {"
+            "color: rgba(176, 240, 176, 228);"
+            "padding: 4px 2px 2px 2px;"
+            "font-family: 'Consolas', 'Courier New', monospace;"
+            "letter-spacing: 1px;"
+            "}"));
+        return;
+    } else if (uiStyle == UiStyle::Sunrise) {
+        header->setStyleSheet(QStringLiteral(
+            "QLabel {"
+            "color: rgba(98, 66, 44, 224);"
+            "padding: 4px 2px 2px 2px;"
+            "font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+            "}"));
+        return;
+    } else if (uiStyle == UiStyle::Paper || uiStyle == UiStyle::Clay) {
+        header->setStyleSheet(QStringLiteral(
+            "QLabel {"
+            "color: rgba(94, 68, 46, 218);"
+            "padding: 4px 2px 2px 2px;"
+            "font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+            "}"));
+        return;
+    } else if (uiStyle == UiStyle::Neon) {
+        header->setStyleSheet(QStringLiteral(
+            "QLabel {"
+            "color: rgba(238, 192, 255, 226);"
+            "padding: 4px 2px 2px 2px;"
+            "font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+            "}"));
+        return;
+    } else if (uiStyle == UiStyle::Graphite) {
+        header->setStyleSheet(QStringLiteral(
+            "QLabel {"
+            "color: rgba(220, 230, 246, 212);"
+            "padding: 4px 2px 2px 2px;"
+            "font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+            "}"));
+        return;
+    }
+
+    header->setStyleSheet(QStringLiteral("QLabel { color: rgba(255, 255, 255, 172); padding: 4px 2px 2px 2px; }"));
+}
+
+QLabel *createLaneHeaderWidget(NoteLane lane, QWidget *parent, qreal uiScale, UiStyle uiStyle) {
+    auto *header = new QLabel(noteLaneDisplayName(lane), parent);
+    applyLaneHeaderStyle(header, uiStyle, uiScale);
     return header;
 }
 
@@ -149,8 +211,17 @@ int NotesBoardWidget::totalContentHeight() const {
 }
 
 int NotesBoardWidget::requiredContentWidth() const {
-    QFont displayFont;
+    QFont displayFont = QApplication::font();
     displayFont.setPointSizeF(11.0 * m_uiScale * contentFontScaleForUiScale(m_uiScale));
+    if (m_uiStyle == UiStyle::Pixel) {
+        displayFont.setFamily(QStringLiteral("Consolas"));
+        displayFont.setStyleHint(QFont::TypeWriter);
+        displayFont.setFixedPitch(true);
+    } else {
+        displayFont.setFamily(QStringLiteral("Segoe UI"));
+        displayFont.setStyleHint(QFont::SansSerif);
+        displayFont.setFixedPitch(false);
+    }
     const QFontMetrics metrics(displayFont);
 
     int maxLineWidth = metrics.horizontalAdvance(QStringLiteral("双击输入内容"));
@@ -189,6 +260,7 @@ QVector<NoteItem> NotesBoardWidget::notes() const {
         item.text = card->text();
         item.lane = card->lane();
         item.hue = card->hue();
+        item.sticker = card->sticker();
         item.reminderEpochMsec = card->reminderEpochMsec();
         item.order = static_cast<int>(index);
         values.append(item);
@@ -222,9 +294,7 @@ void NotesBoardWidget::setUiScale(qreal scale) {
         if (label == nullptr) {
             continue;
         }
-        QFont headerFont = label->font();
-        headerFont.setPointSizeF(10.0 * m_uiScale);
-        label->setFont(headerFont);
+        applyLaneHeaderStyle(label, m_uiStyle, m_uiScale);
     }
 }
 
@@ -250,6 +320,12 @@ void NotesBoardWidget::setUiStyle(UiStyle uiStyle) {
     m_uiStyle = uiStyle;
     for (NoteCardWidget *card : std::as_const(m_cards)) {
         card->setUiStyle(uiStyle);
+    }
+    for (QWidget *laneHeader : std::as_const(m_laneHeaders)) {
+        auto *label = qobject_cast<QLabel *>(laneHeader);
+        if (label != nullptr) {
+            applyLaneHeaderStyle(label, m_uiStyle, m_uiScale);
+        }
     }
 }
 
@@ -312,7 +388,7 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
         if (!laneInitialized || activeLane != itemLane) {
             activeLane = itemLane;
             laneInitialized = true;
-            QLabel *laneHeader = createLaneHeaderWidget(itemLane, this, m_uiScale);
+            QLabel *laneHeader = createLaneHeaderWidget(itemLane, this, m_uiScale, m_uiStyle);
             m_layout->addWidget(laneHeader);
             m_laneHeaders.append(laneHeader);
         }
@@ -348,10 +424,12 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
             connect(card, &NoteCardWidget::windowLockToggled, this, &NotesBoardWidget::windowLockToggled);
             connect(card, &NoteCardWidget::reminderSetRequested, this, &NotesBoardWidget::reminderSetRequested);
             connect(card, &NoteCardWidget::reminderClearedRequested, this, &NotesBoardWidget::reminderClearedRequested);
+            connect(card, &NoteCardWidget::timelineReplayRequested, this, &NotesBoardWidget::timelineReplayRequested);
             connect(card, &NoteCardWidget::openStorageDirectoryRequested, this, &NotesBoardWidget::openStorageDirectoryRequested);
             connect(card, &NoteCardWidget::quitRequested, this, &NotesBoardWidget::quitRequested);
             connect(card, &NoteCardWidget::deleteRequested, this, &NotesBoardWidget::handleCardDeleteRequested);
             connect(card, &NoteCardWidget::hueChangeRequested, this, &NotesBoardWidget::noteHueChangeRequested);
+            connect(card, &NoteCardWidget::stickerChangeRequested, this, &NotesBoardWidget::noteStickerChangeRequested);
             connect(card, &NoteCardWidget::laneChangeRequested, this, &NotesBoardWidget::noteLaneChangeRequested);
             connect(card, &NoteCardWidget::uiStyleChangeRequested, this, &NotesBoardWidget::uiStyleChangeRequested);
         }
@@ -359,6 +437,7 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
         card->setNoteId(item.id);
         card->setText(item.text);
         card->setHue(item.hue);
+        card->setSticker(item.sticker);
         card->setLane(itemLane);
         card->setUiScale(m_uiScale);
         card->setBaseLayerOpacity(m_baseLayerOpacity);

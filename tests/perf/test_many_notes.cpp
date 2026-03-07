@@ -22,6 +22,7 @@ AppState makeState(int noteCount) {
         item.text = QStringLiteral("item-%1").arg(index);
         item.order = noteCount - index;
         item.hue = -1;
+        item.sticker = QString();
         item.reminderEpochMsec = 0;
         state.notes.append(item);
     }
@@ -47,6 +48,7 @@ void GlassNotePerfTests::syncNoteOrderManyNotes() {
         note.id = QStringLiteral("perf-%1").arg(index);
         note.text = QStringLiteral("item-%1").arg(index);
         note.order = 1500 - index;
+        note.sticker = QString();
         notes.append(note);
     }
 

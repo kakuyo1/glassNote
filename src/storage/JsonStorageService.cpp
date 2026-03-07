@@ -1,5 +1,6 @@
 #include "storage/JsonStorageService.h"
 
+#include <QDate>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -150,8 +151,72 @@ QJsonObject noteToJson(const NoteItem &note) {
     object.insert(QStringLiteral("order"), note.order);
     object.insert(QStringLiteral("lane"), noteLaneToStorageValue(note.lane));
     object.insert(QStringLiteral("hue"), note.hue);
+    object.insert(QStringLiteral("sticker"), note.sticker);
     object.insert(QStringLiteral("reminderEpochMsec"), note.reminderEpochMsec);
     return object;
+}
+
+NoteItem noteFromJson(const QJsonObject &object, int fallbackOrder);
+
+bool notesEquivalent(const QVector<NoteItem> &left, const QVector<NoteItem> &right) {
+    if (left.size() != right.size()) {
+        return false;
+    }
+
+    for (qsizetype index = 0; index < left.size(); ++index) {
+        const NoteItem &lhs = left.at(index);
+        const NoteItem &rhs = right.at(index);
+        if (lhs.id != rhs.id
+            || lhs.text != rhs.text
+            || lhs.order != rhs.order
+            || normalizedNoteLane(lhs.lane) != normalizedNoteLane(rhs.lane)
+            || lhs.hue != rhs.hue
+            || lhs.sticker != rhs.sticker
+            || lhs.reminderEpochMsec != rhs.reminderEpochMsec) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+QJsonObject timelineSnapshotToJson(const DailyTimelineSnapshot &snapshot) {
+    QJsonObject object;
+    object.insert(QStringLiteral("dateKey"), snapshot.dateKey);
+
+    QJsonArray notesArray;
+    for (const NoteItem &note : snapshot.notes) {
+        notesArray.append(noteToJson(note));
+    }
+    object.insert(QStringLiteral("notes"), notesArray);
+
+    return object;
+}
+
+DailyTimelineSnapshot timelineSnapshotFromJson(const QJsonObject &object) {
+    DailyTimelineSnapshot snapshot;
+    snapshot.dateKey = object.value(QStringLiteral("dateKey")).toString().trimmed();
+    const QDate date = QDate::fromString(snapshot.dateKey, QStringLiteral("yyyy-MM-dd"));
+    if (!date.isValid()) {
+        snapshot.dateKey.clear();
+        return snapshot;
+    }
+
+    const QJsonArray notesArray = object.value(QStringLiteral("notes")).toArray();
+    snapshot.notes.reserve(notesArray.size());
+    for (qsizetype index = 0; index < notesArray.size(); ++index) {
+        const QJsonValue value = notesArray.at(index);
+        if (!value.isObject()) {
+            continue;
+        }
+        snapshot.notes.append(noteFromJson(value.toObject(), static_cast<int>(index)));
+    }
+
+    if (snapshot.notes.isEmpty()) {
+        snapshot.dateKey.clear();
+    }
+
+    return snapshot;
 }
 
 NoteItem noteFromJson(const QJsonObject &object, int fallbackOrder) {
@@ -165,6 +230,7 @@ NoteItem noteFromJson(const QJsonObject &object, int fallbackOrder) {
     note.order = object.value(QStringLiteral("order")).toInt(fallbackOrder);
     note.lane = noteLaneFromStorageValue(object.value(QStringLiteral("lane")));
     note.hue = object.value(QStringLiteral("hue")).toInt(-1);
+    note.sticker = object.value(QStringLiteral("sticker")).toString();
 
     const QJsonValue reminderValue = object.value(QStringLiteral("reminderEpochMsec"));
     if (reminderValue.isString()) {
@@ -202,6 +268,15 @@ QJsonObject stateToJson(const AppState &state) {
         notesArray.append(noteToJson(note));
     }
     root.insert(QStringLiteral("notes"), notesArray);
+
+    QJsonArray timelineArray;
+    for (const DailyTimelineSnapshot &snapshot : state.timelineSnapshots) {
+        if (snapshot.dateKey.isEmpty() || snapshot.notes.isEmpty()) {
+            continue;
+        }
+        timelineArray.append(timelineSnapshotToJson(snapshot));
+    }
+    root.insert(QStringLiteral("timelineSnapshots"), timelineArray);
 
     return root;
 }
@@ -241,6 +316,45 @@ AppState stateFromJson(const QJsonObject &root) {
         }
         state.notes.append(noteFromJson(value.toObject(), static_cast<int>(index)));
     }
+
+    const QJsonArray timelineArray = root.value(QStringLiteral("timelineSnapshots")).toArray();
+    state.timelineSnapshots.reserve(timelineArray.size());
+    for (const QJsonValue &value : timelineArray) {
+        if (!value.isObject()) {
+            continue;
+        }
+
+        const DailyTimelineSnapshot snapshot = timelineSnapshotFromJson(value.toObject());
+        if (snapshot.dateKey.isEmpty() || snapshot.notes.isEmpty()) {
+            continue;
+        }
+
+        bool replaced = false;
+        for (DailyTimelineSnapshot &existing : state.timelineSnapshots) {
+            if (existing.dateKey == snapshot.dateKey) {
+                existing.notes = snapshot.notes;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            state.timelineSnapshots.append(snapshot);
+        }
+    }
+
+    std::sort(state.timelineSnapshots.begin(), state.timelineSnapshots.end(), [](const DailyTimelineSnapshot &left,
+                                                                                 const DailyTimelineSnapshot &right) {
+        return left.dateKey < right.dateKey;
+    });
+
+    QVector<DailyTimelineSnapshot> deduplicated;
+    deduplicated.reserve(state.timelineSnapshots.size());
+    for (const DailyTimelineSnapshot &snapshot : std::as_const(state.timelineSnapshots)) {
+        if (deduplicated.isEmpty() || !notesEquivalent(deduplicated.constLast().notes, snapshot.notes)) {
+            deduplicated.append(snapshot);
+        }
+    }
+    state.timelineSnapshots = deduplicated;
 
     return state;
 }
@@ -531,6 +645,7 @@ AppState JsonStorageService::defaultState() const {
     note.order = 0;
     note.lane = NoteLane::Today;
     note.hue = -1;
+    note.sticker.clear();
     note.reminderEpochMsec = 0;
     state.notes.append(note);
     state.baseLayerOpacity = constants::kDefaultBaseLayerOpacity;

@@ -70,10 +70,12 @@ signals:
     void windowLockToggled(bool enabled);
     void reminderSetRequested(const QString &noteId);
     void reminderClearedRequested(const QString &noteId);
+    void timelineReplayRequested();
     void openStorageDirectoryRequested();
     void quitRequested();
     void noteDeleteRequested(const QString &noteId);
     void noteHueChangeRequested(const QString &noteId, int hue);
+    void noteStickerChangeRequested(const QString &noteId, const QString &sticker);
     void noteLaneChangeRequested(const QString &noteId, NoteLane lane);
     void uiStyleChangeRequested(UiStyle uiStyle);
     void edgeDropCaptureRequested(const QString &payload);

@@ -31,6 +31,7 @@ AppState makeState(int noteCount) {
         item.text = QStringLiteral("note-%1").arg(index);
         item.order = noteCount - index;
         item.hue = (index * 13) % 360;
+        item.sticker = (index % 2 == 0) ? QStringLiteral("⭐") : QStringLiteral("🔥");
         item.reminderEpochMsec = 1700000000000LL + static_cast<qint64>(index);
         state.notes.append(item);
     }
@@ -73,6 +74,7 @@ void GlassNoteTests::serialization_roundTripPersistsFields() {
     QCOMPARE(loaded.notes.at(0).id, QStringLiteral("id-0"));
     QCOMPARE(loaded.notes.at(0).text, QStringLiteral("note-0"));
     QCOMPARE(loaded.notes.at(0).hue, 0);
+    QCOMPARE(loaded.notes.at(0).sticker, QStringLiteral("⭐"));
     QCOMPARE(loaded.notes.at(0).reminderEpochMsec, 1700000000000LL);
 }
 
@@ -97,13 +99,14 @@ void GlassNoteTests::serialization_acceptsLegacyNumericUiStyle() {
     QString errorMessage;
     QVERIFY2(service.importState(filePath, &loaded, &errorMessage), qPrintable(errorMessage));
     QCOMPARE(loaded.uiStyle, UiStyle::Pixel);
+    QCOMPARE(loaded.notes.at(0).sticker, QString());
 }
 
 void GlassNoteTests::controllerLogic_syncNoteOrderReindexes() {
     QVector<NoteItem> notes;
-    notes.append(NoteItem{QStringLiteral("a"), QStringLiteral("A"), 99, NoteLane::Today, -1, 0});
-    notes.append(NoteItem{QStringLiteral("b"), QStringLiteral("B"), 88, NoteLane::Today, -1, 0});
-    notes.append(NoteItem{QStringLiteral("c"), QStringLiteral("C"), 77, NoteLane::Today, -1, 0});
+    notes.append(NoteItem{QStringLiteral("a"), QStringLiteral("A"), 99, NoteLane::Today, -1, QString(), 0});
+    notes.append(NoteItem{QStringLiteral("b"), QStringLiteral("B"), 88, NoteLane::Today, -1, QString(), 0});
+    notes.append(NoteItem{QStringLiteral("c"), QStringLiteral("C"), 77, NoteLane::Today, -1, QString(), 0});
 
     appstate::syncNoteOrder(&notes);
 
@@ -122,6 +125,7 @@ void GlassNoteTests::controllerLogic_ensureAtLeastOneNoteCreatesDefault() {
     QVERIFY(!state.notes.constFirst().id.isEmpty());
     QCOMPARE(state.notes.constFirst().order, 0);
     QCOMPARE(state.notes.constFirst().hue, -1);
+    QCOMPARE(state.notes.constFirst().sticker, QString());
     QCOMPARE(state.notes.constFirst().reminderEpochMsec, 0);
 }
 
