@@ -72,6 +72,8 @@ cmake --build B:\glassNote\build --config Debug
 B:\glassNote\scripts\package_release.bat 0.1.0
 ```
 
+说明：传入的版本号会同时写入安装包命名、manifest，以及程序内部运行时版本（用于“检查更新”比较）。
+
 如需在失败时保留窗口便于排查，可附加参数：
 
 ```bat

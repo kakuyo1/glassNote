@@ -124,7 +124,7 @@ if exist "%STAGE_DIR%" (
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
 call :log "[1/7] Configure CMake (Release)"
-cmake -S "%REPO_DIR%" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 >> "%LOG_FILE%" 2>&1 || goto :fail
+cmake -S "%REPO_DIR%" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DGLASSNOTE_BUILD_VERSION=%APP_VERSION% >> "%LOG_FILE%" 2>&1 || goto :fail
 
 call :log "[2/7] Build glassNote (Release)"
 cmake --build "%BUILD_DIR%" --config Release --target glassNote >> "%LOG_FILE%" 2>&1 || goto :fail

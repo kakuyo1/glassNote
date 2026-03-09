@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.21)
 
 project(glassNote VERSION 0.1.0 LANGUAGES CXX)
 
+set(GLASSNOTE_BUILD_VERSION "${PROJECT_VERSION}" CACHE STRING "Runtime/application version string")
+if(GLASSNOTE_BUILD_VERSION STREQUAL "")
+    set(GLASSNOTE_BUILD_VERSION "${PROJECT_VERSION}")
+endif()
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
@@ -50,7 +55,7 @@ if(WIN32)
 endif()
 
 target_link_libraries(glassNote PRIVATE Qt6::Widgets Qt6::Network)
-target_compile_definitions(glassNote PRIVATE GLASSNOTE_APP_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(glassNote PRIVATE GLASSNOTE_APP_VERSION="${GLASSNOTE_BUILD_VERSION}")
 
 target_include_directories(glassNote PRIVATE src)
 
@@ -76,9 +81,9 @@ endif()
 set(CPACK_PACKAGE_NAME "glassNote")
 set(CPACK_PACKAGE_VENDOR "glassNote")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "A lightweight transparent sticky notes desktop app")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VERSION "${GLASSNOTE_BUILD_VERSION}")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "glassNote")
-set(CPACK_PACKAGE_FILE_NAME "glassNote-${PROJECT_VERSION}-${GLASSNOTE_PACKAGE_ARCH}-portable")
+set(CPACK_PACKAGE_FILE_NAME "glassNote-${GLASSNOTE_BUILD_VERSION}-${GLASSNOTE_PACKAGE_ARCH}-portable")
 set(CPACK_MONOLITHIC_INSTALL ON)
 set(CPACK_GENERATOR "ZIP")
 
