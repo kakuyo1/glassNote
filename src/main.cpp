@@ -10,7 +10,7 @@
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
-    const QIcon applicationIcon(QStringLiteral(":/static/icons/tobyfox.png"));
+    const QIcon applicationIcon(QStringLiteral(":/icons/tobyfox.png"));
     if (!applicationIcon.isNull()) {
         QApplication::setWindowIcon(applicationIcon);
     }

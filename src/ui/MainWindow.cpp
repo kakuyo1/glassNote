@@ -979,8 +979,8 @@ void MainWindow::moveToDefaultPosition() {
     }
 
     const QRect available = screen->availableGeometry();
-    const int targetX = available.left() + constants::kWindowScreenMargin;
-    const int targetY = available.bottom() - height() - constants::kWindowScreenMargin;
+    const int targetX = available.left();
+    const int targetY = available.bottom() - height();
     setGeometry(clampedGeometry(QRect(QPoint(targetX, targetY), size())));
 }
 

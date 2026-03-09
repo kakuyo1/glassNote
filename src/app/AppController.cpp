@@ -844,9 +844,6 @@ void AppController::applyStateToWindow() {
 
     refreshWindow();
 
-    if (m_state.hasSavedWindowPosition) {
-        m_mainWindow->restoreWindowPosition(m_state.windowPosition);
-    }
     if (m_state.hasSavedWindowSize) {
         m_mainWindow->restoreWindowSize(m_state.windowSize);
     }
@@ -2041,7 +2038,7 @@ void AppController::initializeSystemTray() {
         return;
     }
 
-    QIcon trayIcon(QStringLiteral(":/static/icons/tobyfox-small.png"));
+    QIcon trayIcon(QStringLiteral(":/icons/tobyfox-small.png"));
     if (trayIcon.isNull()) {
         trayIcon = QApplication::windowIcon();
     }
