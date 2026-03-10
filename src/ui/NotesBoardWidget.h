@@ -1,13 +1,22 @@
 #pragma once
 
 #include <QEvent>
+#include <QLabel>
 #include <QPoint>
+#include <QPointF>
+#include <QPixmap>
 #include <QVector>
 #include <QVBoxLayout>
 #include <QWidget>
 
 #include "model/NoteItem.h"
 #include "model/UiStyle.h"
+
+class QGraphicsDropShadowEffect;
+class QPropertyAnimation;
+class QScrollArea;
+class QTimer;
+class QVariantAnimation;
 
 namespace glassnote {
 
@@ -18,6 +27,7 @@ class NotesBoardWidget final : public QWidget {
 
 public:
     explicit NotesBoardWidget(QWidget *parent = nullptr);
+    ~NotesBoardWidget() override;
 
     int bestVisibleContentHeight(int maxHeight) const;
     int totalContentHeight() const;
@@ -63,9 +73,25 @@ signals:
     void noteStickerChangeRequested(const QString &noteId, const QString &sticker);
     void noteLaneChangeRequested(const QString &noteId, NoteLane lane);
     void uiStyleChangeRequested(UiStyle uiStyle);
+    void noteReorderRequested();
 
 protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
+    void handleCardDragHoldStarted(const QString &noteId, const QPoint &globalPos);
+    void updateCardDragPreview(const QPoint &globalPos);
+    void finishCardDrag(const QPoint &globalPos, bool canceled);
+    void updateDragAutoScroll(const QPoint &globalPos);
+    void stopDragAutoScroll();
+    NoteLane laneForDragLocalY(int localY) const;
+    int insertionOrderForLane(NoteLane lane, int localY) const;
+    QVector<NoteItem> notesWithDraggedCardPreview(NoteLane lane, int laneOrder) const;
+    NoteCardWidget *findCardById(const QString &noteId) const;
+    QScrollArea *hostScrollArea() const;
+    void refreshDragProxyPixmap(qreal scale);
+    void updateDragProxyPosition(const QPoint &globalPos);
+    void clearDragProxy();
     void rebuildCards(const QVector<NoteItem> &notes);
     void handleCardDeleteRequested(const QString &noteId);
 
@@ -81,6 +107,25 @@ private:
     bool m_autoCheckUpdatesEnabled = true;
     bool m_windowLocked = false;
     bool m_deleteAnimationRunning = false;
+    bool m_noteDragInProgress = false;
+    QString m_hiddenCardId;
+    QString m_draggedNoteId;
+    NoteCardWidget *m_draggedCard = nullptr;
+    QLabel *m_dragProxy = nullptr;
+    QPointF m_dragProxyAnchorRatio = QPointF(0.5, 0.5);
+    QPixmap m_dragProxySourcePixmap;
+    qreal m_dragProxyScale = 1.0;
+    QGraphicsDropShadowEffect *m_dragProxyShadowEffect = nullptr;
+    QVariantAnimation *m_dragProxyScaleAnimation = nullptr;
+    QPropertyAnimation *m_dragProxyShadowBlurAnimation = nullptr;
+    QPropertyAnimation *m_dragProxyShadowOffsetAnimation = nullptr;
+    QTimer *m_dragAutoScrollTimer = nullptr;
+    int m_dragAutoScrollVelocity = 0;
+    QPoint m_lastDragGlobalPos;
+    NoteLane m_dragPreviewLane = NoteLane::Today;
+    int m_dragPreviewOrder = -1;
+    QVector<NoteItem> m_dragOriginNotes;
+    QVector<NoteItem> m_dragPreviewNotes;
 };
 
 }  // namespace glassnote

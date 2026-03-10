@@ -48,6 +48,7 @@ private:
     void handleNoteHueChangeRequested(const QString &noteId, int hue);
     void handleNoteStickerChangeRequested(const QString &noteId, const QString &sticker);
     void handleNoteLaneChangeRequested(const QString &noteId, NoteLane lane);
+    void handleNoteReorderRequested();
     void handleUiStyleChangeRequested(UiStyle uiStyle);
     void handleScaleInRequested();
     void handleScaleOutRequested();

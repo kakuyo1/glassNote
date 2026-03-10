@@ -743,6 +743,7 @@ void AppController::initialize() {
             this,
             &AppController::handleNoteStickerChangeRequested);
     connect(m_mainWindow, &MainWindow::noteLaneChangeRequested, this, &AppController::handleNoteLaneChangeRequested);
+    connect(m_mainWindow, &MainWindow::noteReorderRequested, this, &AppController::handleNoteReorderRequested);
     connect(m_mainWindow, &MainWindow::uiStyleChangeRequested, this, &AppController::handleUiStyleChangeRequested);
     connect(m_mainWindow, &MainWindow::scaleInRequested, this, &AppController::handleScaleInRequested);
     connect(m_mainWindow, &MainWindow::scaleOutRequested, this, &AppController::handleScaleOutRequested);
@@ -976,6 +977,14 @@ void AppController::handleNoteLaneChangeRequested(const QString &noteId, NoteLan
     }
 
     refreshWindow();
+    m_autoSaveCoordinator->requestSave();
+}
+
+void AppController::handleNoteReorderRequested() {
+    if (m_mainWindow != nullptr) {
+        m_state.notes = m_mainWindow->notes();
+        appstate::syncNoteOrder(&m_state.notes);
+    }
     m_autoSaveCoordinator->requestSave();
 }
 

@@ -969,6 +969,7 @@ void MainWindow::initializeLayout() {
             this,
             &MainWindow::noteStickerChangeRequested);
     connect(m_boardWidget, &NotesBoardWidget::noteLaneChangeRequested, this, &MainWindow::noteLaneChangeRequested);
+    connect(m_boardWidget, &NotesBoardWidget::noteReorderRequested, this, &MainWindow::noteReorderRequested);
     connect(m_boardWidget, &NotesBoardWidget::uiStyleChangeRequested, this, &MainWindow::uiStyleChangeRequested);
 }
 

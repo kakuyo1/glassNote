@@ -2,6 +2,7 @@
 
 #include <QString>
 #include <QtGlobal>
+#include <QPoint>
 #include <QResizeEvent>
 #include <QTextCharFormat>
 #include <QTextListFormat>
@@ -19,6 +20,7 @@ class QGraphicsDropShadowEffect;
 class QMenu;
 class QTextEdit;
 class QToolButton;
+class QTimer;
 
 namespace glassnote {
 
@@ -52,6 +54,7 @@ public:
     void setWindowLocked(bool enabled);
     void setReminderEpochMsec(qint64 reminderEpochMsec);
     void setUiStyle(UiStyle uiStyle);
+    void setNoteDragActive(bool active);
     void startEditing();
     qreal hoverProgress() const;
     void setHoverProgress(qreal progress);
@@ -85,6 +88,7 @@ signals:
     void stickerChangeRequested(const QString &noteId, const QString &sticker);
     void laneChangeRequested(const QString &noteId, NoteLane lane);
     void uiStyleChangeRequested(UiStyle uiStyle);
+    void dragHoldStarted(const QString &noteId, const QPoint &globalPos);
 
 protected:
     void contextMenuEvent(QContextMenuEvent *event) override;
@@ -149,7 +153,9 @@ private:
     qreal m_baseLayerOpacity = 1.0;
     qreal m_hoverProgress = 0.0;
     QPropertyAnimation *m_hoverAnimation = nullptr;
+    QTimer *m_dragHoldTimer = nullptr;
     bool m_draggingWindow = false;
+    bool m_noteDragActive = false;
     bool m_pressActivated = false;
     bool m_externalFileSyncEnabled = true;
     bool m_alwaysOnTopEnabled = false;
@@ -158,6 +164,7 @@ private:
     bool m_windowLocked = false;
     qint64 m_reminderEpochMsec = 0;
     UiStyle m_uiStyle = UiStyle::Glass;
+    QPoint m_pressGlobalPos;
     QPoint m_dragOffset;
 };
 

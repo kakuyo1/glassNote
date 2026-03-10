@@ -2,11 +2,19 @@
 
 #include <algorithm>
 #include <QApplication>
+#include <QGraphicsDropShadowEffect>
 #include <QHash>
 #include <QFont>
 #include <QFontMetrics>
+#include <QKeyEvent>
 #include <QLabel>
+#include <QMouseEvent>
+#include <QPropertyAnimation>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSet>
+#include <QTimer>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 
 #include <utility>
@@ -133,6 +141,44 @@ bool noteLessThanByLaneAndOrder(const NoteItem &left, const NoteItem &right) {
     return left.id < right.id;
 }
 
+bool laneFromHeaderText(const QString &text, NoteLane *lane) {
+    if (lane == nullptr) {
+        return false;
+    }
+
+    const QString normalizedText = text.trimmed();
+    const NoteLane laneCandidates[] = {
+        NoteLane::Today,
+        NoteLane::Next,
+        NoteLane::Waiting,
+        NoteLane::Someday,
+    };
+    for (NoteLane candidate : laneCandidates) {
+        if (normalizedText.compare(noteLaneDisplayName(candidate), Qt::CaseInsensitive) == 0) {
+            *lane = candidate;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool noteArrangementEquivalent(const QVector<NoteItem> &left, const QVector<NoteItem> &right) {
+    if (left.size() != right.size()) {
+        return false;
+    }
+
+    for (qsizetype index = 0; index < left.size(); ++index) {
+        const NoteItem &lhs = left.at(index);
+        const NoteItem &rhs = right.at(index);
+        if (lhs.id != rhs.id || normalizedNoteLane(lhs.lane) != normalizedNoteLane(rhs.lane)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 }  // namespace
 
 NotesBoardWidget::NotesBoardWidget(QWidget *parent)
@@ -144,6 +190,43 @@ NotesBoardWidget::NotesBoardWidget(QWidget *parent)
     m_layout = new QVBoxLayout(this);
     m_layout->setContentsMargins(0, 0, 0, 0);
     m_layout->setSpacing(constants::kBoardSpacing);
+
+    m_dragAutoScrollTimer = new QTimer(this);
+    m_dragAutoScrollTimer->setInterval(16);
+    connect(m_dragAutoScrollTimer, &QTimer::timeout, this, [this]() {
+        if (!m_noteDragInProgress) {
+            stopDragAutoScroll();
+            return;
+        }
+
+        QScrollArea *scrollArea = hostScrollArea();
+        if (scrollArea == nullptr) {
+            stopDragAutoScroll();
+            return;
+        }
+
+        QScrollBar *bar = scrollArea->verticalScrollBar();
+        if (bar == nullptr || bar->maximum() <= 0 || m_dragAutoScrollVelocity == 0) {
+            stopDragAutoScroll();
+            return;
+        }
+
+        const int value = bar->value();
+        const int nextValue = qBound(bar->minimum(), value + m_dragAutoScrollVelocity, bar->maximum());
+        if (nextValue == value) {
+            stopDragAutoScroll();
+            return;
+        }
+
+        bar->setValue(nextValue);
+        updateCardDragPreview(m_lastDragGlobalPos);
+    });
+}
+
+NotesBoardWidget::~NotesBoardWidget() {
+    if (qApp != nullptr) {
+        qApp->removeEventFilter(this);
+    }
 }
 
 int NotesBoardWidget::bestVisibleContentHeight(int maxHeight) const {
@@ -270,6 +353,9 @@ QVector<NoteItem> NotesBoardWidget::notes() const {
 }
 
 void NotesBoardWidget::setNotes(const QVector<NoteItem> &notes) {
+    if (m_noteDragInProgress) {
+        finishCardDrag(QCursor::pos(), true);
+    }
     rebuildCards(notes);
 }
 
@@ -359,9 +445,524 @@ void NotesBoardWidget::setAutoCheckUpdatesEnabled(bool enabled) {
 
 void NotesBoardWidget::setWindowLocked(bool enabled) {
     m_windowLocked = enabled;
+    if (enabled && m_noteDragInProgress) {
+        finishCardDrag(QCursor::pos(), true);
+    }
     for (NoteCardWidget *card : std::as_const(m_cards)) {
         card->setWindowLocked(enabled);
     }
+}
+
+bool NotesBoardWidget::eventFilter(QObject *watched, QEvent *event) {
+    Q_UNUSED(watched)
+
+    if (m_noteDragInProgress && event != nullptr) {
+        switch (event->type()) {
+        case QEvent::MouseMove: {
+            auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            if ((mouseEvent->buttons() & Qt::LeftButton) == 0) {
+                finishCardDrag(mouseEvent->globalPosition().toPoint(), false);
+            } else {
+                updateCardDragPreview(mouseEvent->globalPosition().toPoint());
+            }
+            return true;
+        }
+        case QEvent::MouseButtonRelease: {
+            auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                finishCardDrag(mouseEvent->globalPosition().toPoint(), false);
+                return true;
+            }
+            break;
+        }
+        case QEvent::KeyPress: {
+            auto *keyEvent = static_cast<QKeyEvent *>(event);
+            if (keyEvent->key() == Qt::Key_Escape) {
+                finishCardDrag(QCursor::pos(), true);
+                return true;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    return QWidget::eventFilter(watched, event);
+}
+
+void NotesBoardWidget::handleCardDragHoldStarted(const QString &noteId, const QPoint &globalPos) {
+    auto *senderCard = qobject_cast<NoteCardWidget *>(sender());
+    if (m_noteDragInProgress || m_windowLocked || m_deleteAnimationRunning) {
+        if (senderCard != nullptr) {
+            senderCard->setNoteDragActive(false);
+        }
+        return;
+    }
+
+    NoteCardWidget *card = findCardById(noteId);
+    if (card == nullptr) {
+        if (senderCard != nullptr) {
+            senderCard->setNoteDragActive(false);
+        }
+        return;
+    }
+
+    m_noteDragInProgress = true;
+    m_draggedCard = card;
+    m_draggedNoteId = noteId;
+    m_dragOriginNotes = notes();
+    m_dragPreviewNotes = m_dragOriginNotes;
+    m_dragPreviewLane = card->lane();
+    m_dragPreviewOrder = insertionOrderForLane(m_dragPreviewLane, card->geometry().center().y());
+    m_hiddenCardId = m_draggedNoteId;
+    m_lastDragGlobalPos = globalPos;
+
+    const QPoint cardGlobalTopLeft = card->mapToGlobal(QPoint(0, 0));
+    const QPoint anchorOffset = globalPos - cardGlobalTopLeft;
+    const QSize cardSize = card->size();
+    const qreal anchorX = cardSize.width() > 0
+                              ? qBound(0.0,
+                                       static_cast<qreal>(anchorOffset.x()) / static_cast<qreal>(cardSize.width()),
+                                       1.0)
+                              : 0.5;
+    const qreal anchorY = cardSize.height() > 0
+                              ? qBound(0.0,
+                                       static_cast<qreal>(anchorOffset.y()) / static_cast<qreal>(cardSize.height()),
+                                       1.0)
+                              : 0.5;
+    m_dragProxyAnchorRatio = QPointF(anchorX, anchorY);
+    m_dragProxySourcePixmap = card->grab();
+    if (m_dragProxySourcePixmap.isNull()) {
+        if (senderCard != nullptr) {
+            senderCard->setNoteDragActive(false);
+        }
+        m_noteDragInProgress = false;
+        m_draggedCard = nullptr;
+        m_draggedNoteId.clear();
+        m_hiddenCardId.clear();
+        m_dragOriginNotes.clear();
+        m_dragPreviewNotes.clear();
+        return;
+    }
+
+    if (m_dragProxy == nullptr) {
+        m_dragProxy = new QLabel(this);
+        m_dragProxy->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        m_dragProxy->setAttribute(Qt::WA_NoSystemBackground, true);
+    }
+    if (m_dragProxyShadowEffect == nullptr) {
+        m_dragProxyShadowEffect = new QGraphicsDropShadowEffect(m_dragProxy);
+        m_dragProxyShadowEffect->setColor(QColor(18, 22, 28, 136));
+        m_dragProxy->setGraphicsEffect(m_dragProxyShadowEffect);
+    }
+    m_dragProxyShadowEffect->setBlurRadius(8.0);
+    m_dragProxyShadowEffect->setOffset(0.0, 2.0);
+
+    refreshDragProxyPixmap(1.0);
+    m_dragProxy->show();
+    m_dragProxy->raise();
+
+    if (m_dragProxyScaleAnimation == nullptr) {
+        m_dragProxyScaleAnimation = new QVariantAnimation(this);
+        connect(m_dragProxyScaleAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+            refreshDragProxyPixmap(value.toReal());
+            updateDragProxyPosition(m_lastDragGlobalPos);
+        });
+    }
+    m_dragProxyScaleAnimation->stop();
+    m_dragProxyScaleAnimation->setDuration(120);
+    m_dragProxyScaleAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    m_dragProxyScaleAnimation->setStartValue(1.0);
+    m_dragProxyScaleAnimation->setEndValue(1.045);
+
+    if (m_dragProxyShadowBlurAnimation == nullptr) {
+        m_dragProxyShadowBlurAnimation = new QPropertyAnimation(m_dragProxyShadowEffect, "blurRadius", this);
+    }
+    if (m_dragProxyShadowOffsetAnimation == nullptr) {
+        m_dragProxyShadowOffsetAnimation = new QPropertyAnimation(m_dragProxyShadowEffect, "offset", this);
+    }
+    m_dragProxyShadowBlurAnimation->stop();
+    m_dragProxyShadowBlurAnimation->setDuration(130);
+    m_dragProxyShadowBlurAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    m_dragProxyShadowBlurAnimation->setStartValue(8.0);
+    m_dragProxyShadowBlurAnimation->setEndValue(22.0);
+
+    m_dragProxyShadowOffsetAnimation->stop();
+    m_dragProxyShadowOffsetAnimation->setDuration(130);
+    m_dragProxyShadowOffsetAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    m_dragProxyShadowOffsetAnimation->setStartValue(QPointF(0.0, 2.0));
+    m_dragProxyShadowOffsetAnimation->setEndValue(QPointF(0.0, 8.0));
+
+    m_dragProxyScaleAnimation->start();
+    m_dragProxyShadowBlurAnimation->start();
+    m_dragProxyShadowOffsetAnimation->start();
+
+    if (qApp != nullptr) {
+        qApp->installEventFilter(this);
+    }
+
+    rebuildCards(m_dragPreviewNotes);
+    m_draggedCard = findCardById(m_draggedNoteId);
+    if (m_draggedCard != nullptr) {
+        m_draggedCard->setNoteDragActive(true);
+    }
+    updateCardDragPreview(globalPos);
+}
+
+QScrollArea *NotesBoardWidget::hostScrollArea() const {
+    QWidget *node = parentWidget();
+    while (node != nullptr) {
+        auto *scrollArea = qobject_cast<QScrollArea *>(node);
+        if (scrollArea != nullptr) {
+            return scrollArea;
+        }
+        node = node->parentWidget();
+    }
+
+    return nullptr;
+}
+
+void NotesBoardWidget::refreshDragProxyPixmap(qreal scale) {
+    if (m_dragProxy == nullptr || m_dragProxySourcePixmap.isNull()) {
+        return;
+    }
+
+    m_dragProxyScale = qBound(1.0, scale, 1.08);
+    const QSize sourceSize = m_dragProxySourcePixmap.size();
+    const QSize targetSize(qMax(1, qRound(static_cast<qreal>(sourceSize.width()) * m_dragProxyScale)),
+                           qMax(1, qRound(static_cast<qreal>(sourceSize.height()) * m_dragProxyScale)));
+    const QPixmap scaled = m_dragProxySourcePixmap.scaled(targetSize,
+                                                          Qt::KeepAspectRatio,
+                                                          Qt::SmoothTransformation);
+    m_dragProxy->setPixmap(scaled);
+    m_dragProxy->resize(scaled.size());
+}
+
+void NotesBoardWidget::updateDragProxyPosition(const QPoint &globalPos) {
+    if (m_dragProxy == nullptr) {
+        return;
+    }
+
+    const QPoint proxyOffset(static_cast<int>(m_dragProxyAnchorRatio.x() * static_cast<qreal>(m_dragProxy->width())),
+                             static_cast<int>(m_dragProxyAnchorRatio.y() * static_cast<qreal>(m_dragProxy->height())));
+    const QPoint proxyTopLeftGlobal = globalPos - proxyOffset;
+    m_dragProxy->move(mapFromGlobal(proxyTopLeftGlobal));
+}
+
+void NotesBoardWidget::updateDragAutoScroll(const QPoint &globalPos) {
+    m_lastDragGlobalPos = globalPos;
+    if (!m_noteDragInProgress) {
+        stopDragAutoScroll();
+        return;
+    }
+
+    QScrollArea *scrollArea = hostScrollArea();
+    if (scrollArea == nullptr || scrollArea->viewport() == nullptr) {
+        stopDragAutoScroll();
+        return;
+    }
+
+    QScrollBar *bar = scrollArea->verticalScrollBar();
+    if (bar == nullptr || bar->maximum() <= 0) {
+        stopDragAutoScroll();
+        return;
+    }
+
+    const QWidget *viewport = scrollArea->viewport();
+    const QRect viewportGlobalRect(viewport->mapToGlobal(QPoint(0, 0)), viewport->size());
+    const int edgeThreshold = qMax(22, static_cast<int>(42.0 * m_uiScale));
+    const int globalY = globalPos.y();
+    int velocity = 0;
+
+    if (globalY < viewportGlobalRect.top() + edgeThreshold) {
+        const qreal strength = qBound(0.0,
+                                      static_cast<qreal>((viewportGlobalRect.top() + edgeThreshold) - globalY)
+                                          / static_cast<qreal>(edgeThreshold),
+                                      1.0);
+        velocity = -qMax(2, static_cast<int>(4.0 + (strength * 20.0)));
+    } else if (globalY > viewportGlobalRect.bottom() - edgeThreshold) {
+        const qreal strength = qBound(0.0,
+                                      static_cast<qreal>(globalY - (viewportGlobalRect.bottom() - edgeThreshold))
+                                          / static_cast<qreal>(edgeThreshold),
+                                      1.0);
+        velocity = qMax(2, static_cast<int>(4.0 + (strength * 20.0)));
+    }
+
+    m_dragAutoScrollVelocity = velocity;
+    if (m_dragAutoScrollVelocity == 0) {
+        stopDragAutoScroll();
+        return;
+    }
+
+    if (m_dragAutoScrollTimer != nullptr && !m_dragAutoScrollTimer->isActive()) {
+        m_dragAutoScrollTimer->start();
+    }
+}
+
+void NotesBoardWidget::stopDragAutoScroll() {
+    m_dragAutoScrollVelocity = 0;
+    if (m_dragAutoScrollTimer != nullptr && m_dragAutoScrollTimer->isActive()) {
+        m_dragAutoScrollTimer->stop();
+    }
+}
+
+NoteLane NotesBoardWidget::laneForDragLocalY(int localY) const {
+    struct HeaderAnchor {
+        int top = 0;
+        NoteLane lane = NoteLane::Today;
+    };
+
+    QVector<HeaderAnchor> anchors;
+    anchors.reserve(m_laneHeaders.size());
+    for (QWidget *laneHeader : std::as_const(m_laneHeaders)) {
+        auto *label = qobject_cast<QLabel *>(laneHeader);
+        if (label == nullptr) {
+            continue;
+        }
+        NoteLane lane = NoteLane::Today;
+        if (!laneFromHeaderText(label->text(), &lane)) {
+            continue;
+        }
+        anchors.append(HeaderAnchor{label->geometry().top(), lane});
+    }
+
+    std::sort(anchors.begin(), anchors.end(), [](const HeaderAnchor &left, const HeaderAnchor &right) {
+        return left.top < right.top;
+    });
+
+    if (anchors.isEmpty()) {
+        return m_draggedCard != nullptr ? m_draggedCard->lane() : NoteLane::Today;
+    }
+
+    if (localY < anchors.constFirst().top) {
+        return anchors.constFirst().lane;
+    }
+
+    for (qsizetype index = 0; index + 1 < anchors.size(); ++index) {
+        if (localY < anchors.at(index + 1).top) {
+            return anchors.at(index).lane;
+        }
+    }
+
+    return anchors.constLast().lane;
+}
+
+int NotesBoardWidget::insertionOrderForLane(NoteLane lane, int localY) const {
+    int order = 0;
+    const NoteLane normalizedLane = normalizedNoteLane(lane);
+    for (NoteCardWidget *card : std::as_const(m_cards)) {
+        if (card == nullptr || card->noteId() == m_draggedNoteId) {
+            continue;
+        }
+        if (normalizedNoteLane(card->lane()) != normalizedLane) {
+            continue;
+        }
+
+        if (localY < card->geometry().center().y()) {
+            return order;
+        }
+        ++order;
+    }
+
+    return order;
+}
+
+QVector<NoteItem> NotesBoardWidget::notesWithDraggedCardPreview(NoteLane lane, int laneOrder) const {
+    const QVector<NoteItem> current = notes();
+    if (current.isEmpty() || m_draggedNoteId.isEmpty()) {
+        return current;
+    }
+
+    NoteItem draggedItem;
+    bool foundDraggedItem = false;
+    QVector<NoteItem> todayNotes;
+    QVector<NoteItem> nextNotes;
+    QVector<NoteItem> waitingNotes;
+    QVector<NoteItem> somedayNotes;
+    todayNotes.reserve(current.size());
+    nextNotes.reserve(current.size());
+    waitingNotes.reserve(current.size());
+    somedayNotes.reserve(current.size());
+
+    for (const NoteItem &item : current) {
+        if (item.id == m_draggedNoteId) {
+            draggedItem = item;
+            foundDraggedItem = true;
+            continue;
+        }
+
+        switch (normalizedNoteLane(item.lane)) {
+        case NoteLane::Today:
+            todayNotes.append(item);
+            break;
+        case NoteLane::Next:
+            nextNotes.append(item);
+            break;
+        case NoteLane::Waiting:
+            waitingNotes.append(item);
+            break;
+        case NoteLane::Someday:
+            somedayNotes.append(item);
+            break;
+        }
+    }
+
+    if (!foundDraggedItem) {
+        return current;
+    }
+
+    draggedItem.lane = normalizedNoteLane(lane);
+    auto insertDragged = [&](QVector<NoteItem> *laneNotes) {
+        if (laneNotes == nullptr) {
+            return;
+        }
+        const int clampedOrder = qBound(0, laneOrder, laneNotes->size());
+        laneNotes->insert(clampedOrder, draggedItem);
+    };
+
+    switch (draggedItem.lane) {
+    case NoteLane::Today:
+        insertDragged(&todayNotes);
+        break;
+    case NoteLane::Next:
+        insertDragged(&nextNotes);
+        break;
+    case NoteLane::Waiting:
+        insertDragged(&waitingNotes);
+        break;
+    case NoteLane::Someday:
+        insertDragged(&somedayNotes);
+        break;
+    }
+
+    QVector<NoteItem> preview;
+    preview.reserve(current.size());
+    auto appendLane = [&preview](QVector<NoteItem> *laneNotes, NoteLane laneValue) {
+        if (laneNotes == nullptr) {
+            return;
+        }
+        for (int index = 0; index < laneNotes->size(); ++index) {
+            NoteItem item = laneNotes->at(index);
+            item.lane = laneValue;
+            item.order = index;
+            preview.append(item);
+        }
+    };
+
+    appendLane(&todayNotes, NoteLane::Today);
+    appendLane(&nextNotes, NoteLane::Next);
+    appendLane(&waitingNotes, NoteLane::Waiting);
+    appendLane(&somedayNotes, NoteLane::Someday);
+    return preview;
+}
+
+NoteCardWidget *NotesBoardWidget::findCardById(const QString &noteId) const {
+    for (NoteCardWidget *card : std::as_const(m_cards)) {
+        if (card != nullptr && card->noteId() == noteId) {
+            return card;
+        }
+    }
+
+    return nullptr;
+}
+
+void NotesBoardWidget::updateCardDragPreview(const QPoint &globalPos) {
+    if (!m_noteDragInProgress) {
+        return;
+    }
+
+    updateDragProxyPosition(globalPos);
+    updateDragAutoScroll(globalPos);
+    const QPoint localPos = mapFromGlobal(globalPos);
+    const NoteLane targetLane = laneForDragLocalY(localPos.y());
+    const int targetOrder = insertionOrderForLane(targetLane, localPos.y());
+
+    if (targetLane == m_dragPreviewLane && targetOrder == m_dragPreviewOrder) {
+        return;
+    }
+
+    QVector<NoteItem> preview = notesWithDraggedCardPreview(targetLane, targetOrder);
+    if (preview.isEmpty()) {
+        return;
+    }
+
+    m_dragPreviewLane = targetLane;
+    m_dragPreviewOrder = targetOrder;
+    m_dragPreviewNotes = preview;
+    rebuildCards(m_dragPreviewNotes);
+    m_draggedCard = findCardById(m_draggedNoteId);
+    if (m_draggedCard != nullptr) {
+        m_draggedCard->setNoteDragActive(true);
+    }
+    if (m_dragProxy != nullptr) {
+        m_dragProxy->raise();
+    }
+    updateDragProxyPosition(globalPos);
+}
+
+void NotesBoardWidget::finishCardDrag(const QPoint &globalPos, bool canceled) {
+    if (!m_noteDragInProgress) {
+        return;
+    }
+
+    if (!canceled) {
+        updateCardDragPreview(globalPos);
+    }
+
+    stopDragAutoScroll();
+
+    if (qApp != nullptr) {
+        qApp->removeEventFilter(this);
+    }
+
+    const QVector<NoteItem> finalNotes = canceled
+                                             ? m_dragOriginNotes
+                                             : (m_dragPreviewNotes.isEmpty() ? notes() : m_dragPreviewNotes);
+
+    m_noteDragInProgress = false;
+    m_hiddenCardId.clear();
+    clearDragProxy();
+    rebuildCards(finalNotes);
+
+    m_draggedCard = findCardById(m_draggedNoteId);
+    if (m_draggedCard != nullptr) {
+        m_draggedCard->setNoteDragActive(false);
+    }
+
+    if (!canceled) {
+        const QVector<NoteItem> reorderedNotes = notes();
+        if (!noteArrangementEquivalent(m_dragOriginNotes, reorderedNotes)) {
+            emit noteReorderRequested();
+        }
+    }
+
+    m_draggedCard = nullptr;
+    m_draggedNoteId.clear();
+    m_dragOriginNotes.clear();
+    m_dragPreviewNotes.clear();
+    m_dragPreviewOrder = -1;
+}
+
+void NotesBoardWidget::clearDragProxy() {
+    if (m_dragProxy == nullptr) {
+        return;
+    }
+
+    if (m_dragProxyScaleAnimation != nullptr) {
+        m_dragProxyScaleAnimation->stop();
+    }
+    if (m_dragProxyShadowBlurAnimation != nullptr) {
+        m_dragProxyShadowBlurAnimation->stop();
+    }
+    if (m_dragProxyShadowOffsetAnimation != nullptr) {
+        m_dragProxyShadowOffsetAnimation->stop();
+    }
+
+    m_dragProxy->hide();
+    m_dragProxy->clear();
+    m_dragProxySourcePixmap = QPixmap();
+    m_dragProxyScale = 1.0;
 }
 
 void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
@@ -449,6 +1050,7 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
             connect(card, &NoteCardWidget::stickerChangeRequested, this, &NotesBoardWidget::noteStickerChangeRequested);
             connect(card, &NoteCardWidget::laneChangeRequested, this, &NotesBoardWidget::noteLaneChangeRequested);
             connect(card, &NoteCardWidget::uiStyleChangeRequested, this, &NotesBoardWidget::uiStyleChangeRequested);
+            connect(card, &NoteCardWidget::dragHoldStarted, this, &NotesBoardWidget::handleCardDragHoldStarted);
         }
 
         card->setNoteId(item.id);
@@ -465,7 +1067,12 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
         card->setAutoCheckUpdatesEnabled(m_autoCheckUpdatesEnabled);
         card->setWindowLocked(m_windowLocked);
         card->setReminderEpochMsec(item.reminderEpochMsec);
-        card->show();
+        const bool keepHiddenForDrag = m_noteDragInProgress && item.id == m_hiddenCardId;
+        if (keepHiddenForDrag) {
+            card->hide();
+        } else {
+            card->show();
+        }
 
         m_layout->addWidget(card);
         orderedCards.append(card);
@@ -511,7 +1118,7 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
 }
 
 void NotesBoardWidget::handleCardDeleteRequested(const QString &noteId) {
-    if (m_deleteAnimationRunning) {
+    if (m_deleteAnimationRunning || m_noteDragInProgress) {
         return;
     }
 

@@ -30,6 +30,7 @@
 #include <QTextList>
 #include <QTextListFormat>
 #include <QToolButton>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWindow>
 
@@ -271,6 +272,23 @@ NoteCardWidget::NoteCardWidget(QWidget *parent)
     m_hoverAnimation->setDuration(140);
     m_hoverAnimation->setEasingCurve(QEasingCurve::OutCubic);
 
+    m_dragHoldTimer = new QTimer(this);
+    m_dragHoldTimer->setSingleShot(true);
+    m_dragHoldTimer->setInterval(260);
+    connect(m_dragHoldTimer, &QTimer::timeout, this, [this]() {
+        if (!m_pressActivated || m_draggingWindow || m_noteDragActive || m_windowLocked) {
+            return;
+        }
+        if (m_editor != nullptr && m_editor->isVisible()) {
+            return;
+        }
+
+        m_pressActivated = false;
+        m_draggingWindow = false;
+        setNoteDragActive(true);
+        emit dragHoldStarted(m_noteId, QCursor::pos());
+    });
+
     connect(m_editor, &QTextEdit::textChanged, this, &NoteCardWidget::syncEditorHeight);
     connect(m_editor,
             &QTextEdit::cursorPositionChanged,
@@ -486,6 +504,10 @@ void NoteCardWidget::setWindowLocked(bool enabled) {
     if (enabled) {
         m_draggingWindow = false;
         m_pressActivated = false;
+        setNoteDragActive(false);
+        if (m_dragHoldTimer != nullptr) {
+            m_dragHoldTimer->stop();
+        }
     }
 }
 
@@ -503,6 +525,25 @@ void NoteCardWidget::setUiStyle(UiStyle uiStyle) {
     update();
 }
 
+void NoteCardWidget::setNoteDragActive(bool active) {
+    if (m_noteDragActive == active) {
+        return;
+    }
+
+    m_noteDragActive = active;
+    if (m_dragHoldTimer != nullptr) {
+        m_dragHoldTimer->stop();
+    }
+
+    if (active) {
+        m_draggingWindow = false;
+        m_pressActivated = false;
+        setCursor(Qt::ClosedHandCursor);
+    } else {
+        unsetCursor();
+    }
+}
+
 void NoteCardWidget::setHoverProgress(qreal progress) {
     const qreal clamped = qBound(0.0, progress, 1.0);
     if (qFuzzyCompare(m_hoverProgress, clamped)) {
@@ -514,6 +555,10 @@ void NoteCardWidget::setHoverProgress(qreal progress) {
 }
 
 void NoteCardWidget::startEditing() {
+    setNoteDragActive(false);
+    if (m_dragHoldTimer != nullptr) {
+        m_dragHoldTimer->stop();
+    }
     setMinimumHeight(baseCardHeight());
     setMaximumHeight(QWIDGETSIZE_MAX);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
@@ -1253,7 +1298,7 @@ void NoteCardWidget::enterEvent(QEnterEvent *event) {
 }
 
 void NoteCardWidget::leaveEvent(QEvent *event) {
-    if (!m_draggingWindow) {
+    if (!m_draggingWindow && !m_noteDragActive) {
         animateHoverTo(0.0);
     }
     QWidget::leaveEvent(event);
@@ -1268,9 +1313,14 @@ void NoteCardWidget::mousePressEvent(QMouseEvent *event) {
         }
 
         if (window() != nullptr) {
-            m_draggingWindow = true;
+            m_draggingWindow = false;
+            setNoteDragActive(false);
             m_pressActivated = true;
-            m_dragOffset = event->globalPosition().toPoint() - window()->frameGeometry().topLeft();
+            m_pressGlobalPos = event->globalPosition().toPoint();
+            m_dragOffset = m_pressGlobalPos - window()->frameGeometry().topLeft();
+            if (m_dragHoldTimer != nullptr) {
+                m_dragHoldTimer->start();
+            }
             animateHoverTo(1.0);
             event->accept();
             return;
@@ -1286,11 +1336,26 @@ void NoteCardWidget::mouseMoveEvent(QMouseEvent *event) {
         return;
     }
 
+    if (m_noteDragActive) {
+        event->accept();
+        return;
+    }
+
     auto *mainWindow = qobject_cast<MainWindow *>(window());
     if (mainWindow != nullptr && mainWindow->isResizingWindow()) {
         mainWindow->updateManualResize(event->globalPosition().toPoint());
         event->accept();
         return;
+    }
+
+    if (m_pressActivated && (event->buttons() & Qt::LeftButton) != 0 && window() != nullptr) {
+        const int dragDistance = (event->globalPosition().toPoint() - m_pressGlobalPos).manhattanLength();
+        if (dragDistance >= QApplication::startDragDistance()) {
+            if (m_dragHoldTimer != nullptr) {
+                m_dragHoldTimer->stop();
+            }
+            m_draggingWindow = true;
+        }
     }
 
     if (m_draggingWindow && (event->buttons() & Qt::LeftButton) != 0 && window() != nullptr) {
@@ -1304,6 +1369,15 @@ void NoteCardWidget::mouseMoveEvent(QMouseEvent *event) {
 
 void NoteCardWidget::mouseReleaseEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
+        if (m_dragHoldTimer != nullptr) {
+            m_dragHoldTimer->stop();
+        }
+
+        if (m_noteDragActive) {
+            event->accept();
+            return;
+        }
+
         if (m_windowLocked) {
             m_draggingWindow = false;
             m_pressActivated = false;
