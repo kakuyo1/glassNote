@@ -547,9 +547,18 @@ void NotesBoardWidget::handleCardDragHoldStarted(const QString &noteId, const QP
     }
 
     if (m_dragProxy == nullptr) {
-        m_dragProxy = new QLabel(this);
+        QWidget *ownerWindow = window();
+        m_dragProxy = new QLabel(ownerWindow);
+        Qt::WindowFlags flags = Qt::Tool
+                                | Qt::FramelessWindowHint
+                                | Qt::WindowStaysOnTopHint
+                                | Qt::NoDropShadowWindowHint
+                                | Qt::WindowDoesNotAcceptFocus;
+        m_dragProxy->setWindowFlags(flags);
         m_dragProxy->setAttribute(Qt::WA_TransparentForMouseEvents, true);
         m_dragProxy->setAttribute(Qt::WA_NoSystemBackground, true);
+        m_dragProxy->setAttribute(Qt::WA_TranslucentBackground, true);
+        m_dragProxy->setFocusPolicy(Qt::NoFocus);
     }
     if (m_dragProxyShadowEffect == nullptr) {
         m_dragProxyShadowEffect = new QGraphicsDropShadowEffect(m_dragProxy);
@@ -647,7 +656,7 @@ void NotesBoardWidget::updateDragProxyPosition(const QPoint &globalPos) {
     const QPoint proxyOffset(static_cast<int>(m_dragProxyAnchorRatio.x() * static_cast<qreal>(m_dragProxy->width())),
                              static_cast<int>(m_dragProxyAnchorRatio.y() * static_cast<qreal>(m_dragProxy->height())));
     const QPoint proxyTopLeftGlobal = globalPos - proxyOffset;
-    m_dragProxy->move(mapFromGlobal(proxyTopLeftGlobal));
+    m_dragProxy->move(proxyTopLeftGlobal);
 }
 
 void NotesBoardWidget::updateDragAutoScroll(const QPoint &globalPos) {
@@ -769,7 +778,9 @@ int NotesBoardWidget::insertionOrderForLane(NoteLane lane, int localY) const {
 }
 
 QVector<NoteItem> NotesBoardWidget::notesWithDraggedCardPreview(NoteLane lane, int laneOrder) const {
-    const QVector<NoteItem> current = notes();
+    const QVector<NoteItem> current = !m_dragPreviewNotes.isEmpty()
+                                          ? m_dragPreviewNotes
+                                          : (!m_dragOriginNotes.isEmpty() ? m_dragOriginNotes : notes());
     if (current.isEmpty() || m_draggedNoteId.isEmpty()) {
         return current;
     }
@@ -1093,13 +1104,13 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
         layout()->activate();
     }
 
-    if (isVisible()) {
+    if (isVisible() && !m_noteDragInProgress) {
         for (NoteCardWidget *card : std::as_const(cardsPendingEntranceAnimation)) {
             AnimationCoordinator::animateCardEntrance(card);
         }
     }
 
-    const bool animateRepositionForPass = isVisible() && !m_deleteAnimationRunning;
+    const bool animateRepositionForPass = isVisible() && !m_deleteAnimationRunning && !m_noteDragInProgress;
     if (!animateRepositionForPass) {
         return;
     }
