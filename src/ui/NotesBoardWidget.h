@@ -34,6 +34,7 @@ public:
     int requiredContentWidth() const;
     QVector<NoteItem> notes() const;
     void setNotes(const QVector<NoteItem> &notes);
+    void setImportedStickers(const QVector<QString> &stickers);
     void focusNoteEditor(const QString &noteId);
     void setUiScale(qreal scale);
     void setBaseLayerOpacity(qreal opacity);
@@ -97,13 +98,14 @@ private:
     void refreshDragProxyPixmap(qreal scale);
     void updateDragProxyPosition(const QPoint &globalPos);
     void clearDragProxy();
-    bool rebuildCardsFastForDragPreview(const QVector<NoteItem> &notes);
+    bool rebuildCardsFastIfPossible(const QVector<NoteItem> &notes);
     void rebuildCards(const QVector<NoteItem> &notes);
     void handleCardDeleteRequested(const QString &noteId);
 
     QVBoxLayout *m_layout = nullptr;
     QVector<QWidget *> m_laneHeaders;
     QVector<NoteCardWidget *> m_cards;
+    QVector<QString> m_importedStickerLibrary;
     qreal m_uiScale = 1.0;
     qreal m_baseLayerOpacity = 1.0;
     UiStyle m_uiStyle = UiStyle::Glass;

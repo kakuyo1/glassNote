@@ -35,6 +35,7 @@ public:
 
     QVector<NoteItem> notes() const;
     void setNotes(const QVector<NoteItem> &notes);
+    void setImportedStickers(const QVector<QString> &stickers);
     void setUiScale(qreal scale);
     void setUiStyle(UiStyle uiStyle);
     void setBaseLayerOpacity(qreal opacity);

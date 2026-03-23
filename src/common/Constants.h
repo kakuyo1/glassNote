@@ -20,7 +20,7 @@ inline constexpr qreal kMaxUiScale = 1.5;
 inline constexpr qreal kUiScaleStep = 0.1;
 inline constexpr qreal kDefaultBaseLayerOpacity = 1.0;
 inline constexpr qreal kMinBaseLayerOpacity = 0.0;
-inline constexpr qreal kMaxBaseLayerOpacity = 1.6;
+inline constexpr qreal kMaxBaseLayerOpacity = 1.0;
 inline constexpr qreal kBaseLayerOpacityStep = 0.1;
 
 }  // namespace glassnote::constants

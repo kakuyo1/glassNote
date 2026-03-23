@@ -14,4 +14,15 @@ enum class UiStyle {
     Clay = 8,
 };
 
+inline constexpr UiStyle normalizedUiStyle(UiStyle style) {
+    switch (style) {
+    case UiStyle::Mist:
+        return UiStyle::Glass;
+    case UiStyle::Sunrise:
+        return UiStyle::Clay;
+    default:
+        return style;
+    }
+}
+
 }  // namespace glassnote

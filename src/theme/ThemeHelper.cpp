@@ -23,10 +23,6 @@ int applyHueOffset(int hue, int offset) {
 
 QColor neutralTopForStyle(UiStyle uiStyle, bool hovered) {
     switch (uiStyle) {
-    case UiStyle::Mist:
-        return hovered ? QColor(36, 48, 66, 136) : QColor(32, 44, 62, 120);
-    case UiStyle::Sunrise:
-        return hovered ? QColor(255, 248, 238, 94) : QColor(255, 244, 232, 82);
     case UiStyle::Meadow:
         return hovered ? QColor(214, 232, 218, 128) : QColor(198, 220, 204, 112);
     case UiStyle::Graphite:
@@ -47,10 +43,6 @@ QColor neutralTopForStyle(UiStyle uiStyle, bool hovered) {
 
 QColor neutralBottomForStyle(UiStyle uiStyle, bool hovered) {
     switch (uiStyle) {
-    case UiStyle::Mist:
-        return hovered ? QColor(18, 28, 42, 120) : QColor(14, 22, 34, 104);
-    case UiStyle::Sunrise:
-        return hovered ? QColor(255, 230, 206, 76) : QColor(255, 222, 196, 66);
     case UiStyle::Meadow:
         return hovered ? QColor(166, 194, 172, 112) : QColor(152, 180, 160, 96);
     case UiStyle::Graphite:
@@ -71,10 +63,6 @@ QColor neutralBottomForStyle(UiStyle uiStyle, bool hovered) {
 
 QColor neutralBorderForStyle(UiStyle uiStyle, bool hovered) {
     switch (uiStyle) {
-    case UiStyle::Mist:
-        return hovered ? QColor(154, 182, 214, 188) : QColor(138, 166, 198, 164);
-    case UiStyle::Sunrise:
-        return hovered ? QColor(255, 246, 232, 132) : QColor(255, 236, 220, 116);
     case UiStyle::Meadow:
         return hovered ? QColor(170, 204, 180, 176) : QColor(156, 190, 166, 156);
     case UiStyle::Graphite:
@@ -95,10 +83,6 @@ QColor neutralBorderForStyle(UiStyle uiStyle, bool hovered) {
 
 QColor neutralHighlightForStyle(UiStyle uiStyle, bool hovered) {
     switch (uiStyle) {
-    case UiStyle::Mist:
-        return hovered ? QColor(214, 232, 255, 106) : QColor(196, 220, 246, 88);
-    case UiStyle::Sunrise:
-        return hovered ? QColor(255, 255, 246, 96) : QColor(255, 248, 236, 82);
     case UiStyle::Meadow:
         return hovered ? QColor(224, 242, 228, 96) : QColor(210, 230, 216, 82);
     case UiStyle::Graphite:
@@ -119,10 +103,6 @@ QColor neutralHighlightForStyle(UiStyle uiStyle, bool hovered) {
 
 int hueOffsetForStyle(UiStyle uiStyle) {
     switch (uiStyle) {
-    case UiStyle::Mist:
-        return 2;
-    case UiStyle::Sunrise:
-        return -14;
     case UiStyle::Meadow:
         return 16;
     case UiStyle::Graphite:
@@ -143,10 +123,6 @@ int hueOffsetForStyle(UiStyle uiStyle) {
 
 int hueSaturationForStyle(UiStyle uiStyle, bool hovered) {
     switch (uiStyle) {
-    case UiStyle::Mist:
-        return hovered ? 76 : 68;
-    case UiStyle::Sunrise:
-        return hovered ? 96 : 86;
     case UiStyle::Meadow:
         return hovered ? 98 : 88;
     case UiStyle::Graphite:
@@ -165,25 +141,194 @@ int hueSaturationForStyle(UiStyle uiStyle, bool hovered) {
     }
 }
 
+int menuPanelRadiusForStyle(UiStyle uiStyle) {
+    switch (uiStyle) {
+    case UiStyle::Pixel:
+        return 2;
+    case UiStyle::Graphite:
+        return 6;
+    case UiStyle::Paper:
+        return 8;
+    case UiStyle::Neon:
+        return 10;
+    case UiStyle::Clay:
+        return 14;
+    case UiStyle::Meadow:
+        return 13;
+    case UiStyle::Glass:
+    default:
+        return 14;
+    }
+}
+
+int menuItemRadiusForStyle(UiStyle uiStyle) {
+    switch (uiStyle) {
+    case UiStyle::Pixel:
+        return 1;
+    case UiStyle::Graphite:
+        return 3;
+    case UiStyle::Paper:
+        return 4;
+    case UiStyle::Neon:
+        return 6;
+    case UiStyle::Clay:
+        return 10;
+    case UiStyle::Meadow:
+        return 9;
+    case UiStyle::Glass:
+    default:
+        return 9;
+    }
+}
+
+int menuIndicatorRadiusForStyle(UiStyle uiStyle) {
+    switch (uiStyle) {
+    case UiStyle::Pixel:
+        return 1;
+    case UiStyle::Graphite:
+        return 2;
+    case UiStyle::Paper:
+        return 2;
+    case UiStyle::Neon:
+        return 3;
+    case UiStyle::Clay:
+        return 5;
+    case UiStyle::Meadow:
+        return 5;
+    case UiStyle::Glass:
+    default:
+        return 6;
+    }
+}
+
+int menuPaddingForStyle(UiStyle uiStyle) {
+    return uiStyle == UiStyle::Pixel ? 6 : 8;
+}
+
+int menuItemVerticalPaddingForStyle(UiStyle uiStyle) {
+    switch (uiStyle) {
+    case UiStyle::Pixel:
+        return 4;
+    case UiStyle::Graphite:
+        return 7;
+    case UiStyle::Paper:
+        return 6;
+    case UiStyle::Neon:
+        return 7;
+    case UiStyle::Clay:
+        return 8;
+    case UiStyle::Meadow:
+        return 8;
+    case UiStyle::Glass:
+    default:
+        return 8;
+    }
+}
+
+int menuItemHorizontalPaddingForStyle(UiStyle uiStyle) {
+    switch (uiStyle) {
+    case UiStyle::Pixel:
+        return 8;
+    case UiStyle::Graphite:
+        return 12;
+    case UiStyle::Paper:
+        return 12;
+    case UiStyle::Neon:
+        return 13;
+    case UiStyle::Clay:
+        return 14;
+    case UiStyle::Meadow:
+        return 14;
+    case UiStyle::Glass:
+    default:
+        return 14;
+    }
+}
+
+QString menuFontDeclarationForStyle(UiStyle uiStyle) {
+    switch (uiStyle) {
+    case UiStyle::Pixel:
+        return QStringLiteral("font-family: 'Consolas', 'Courier New', monospace; letter-spacing: 0.4px;");
+    case UiStyle::Paper:
+        return QStringLiteral("font-family: 'Georgia', 'Times New Roman', serif; letter-spacing: 0.3px;");
+    case UiStyle::Graphite:
+        return QStringLiteral("font-family: 'Bahnschrift SemiCondensed', 'Segoe UI', sans-serif; font-weight: 600; letter-spacing: 0.3px;");
+    case UiStyle::Neon:
+        return QStringLiteral("font-family: 'Consolas', 'Courier New', monospace; letter-spacing: 0.6px;");
+    case UiStyle::Clay:
+        return QStringLiteral("font-family: 'Palatino Linotype', 'Georgia', serif;");
+    case UiStyle::Meadow:
+        return QStringLiteral("font-family: 'Candara', 'Segoe UI', sans-serif;");
+    case UiStyle::Glass:
+    default:
+        return QStringLiteral("font-family: 'Segoe UI', sans-serif;");
+    }
+}
+
+QString menuBorderStyleFor(UiStyle uiStyle) {
+    return (uiStyle == UiStyle::Pixel || uiStyle == UiStyle::Graphite)
+               ? QStringLiteral("solid")
+               : QStringLiteral("solid");
+}
+
+QColor checkedItemBackgroundFor(UiStyle uiStyle, const QColor &selection) {
+    switch (uiStyle) {
+    case UiStyle::Neon:
+        return selection.lighter(118);
+    case UiStyle::Graphite:
+        return selection.darker(106);
+    case UiStyle::Paper:
+        return selection.lighter(102);
+    case UiStyle::Clay:
+        return selection.lighter(108);
+    case UiStyle::Pixel:
+        return selection.lighter(104);
+    case UiStyle::Glass:
+    case UiStyle::Meadow:
+    default:
+        return selection.lighter(106);
+    }
+}
+
+QColor scrollTrackForStyle(UiStyle uiStyle) {
+    switch (uiStyle) {
+    case UiStyle::Graphite:
+        return QColor(12, 18, 26, 176);
+    case UiStyle::Paper:
+        return QColor(144, 118, 84, 56);
+    case UiStyle::Neon:
+        return QColor(8, 6, 24, 196);
+    case UiStyle::Clay:
+        return QColor(126, 84, 60, 88);
+    case UiStyle::Meadow:
+        return QColor(26, 54, 36, 112);
+    case UiStyle::Glass:
+    default:
+        return QColor(0, 0, 0, 0);
+    }
+}
+
+QColor scrollTrackBorderForStyle(UiStyle uiStyle, const WindowPalette &palette) {
+    switch (uiStyle) {
+    case UiStyle::Graphite:
+        return palette.border.lighter(105);
+    case UiStyle::Paper:
+        return palette.border.darker(108);
+    case UiStyle::Neon:
+        return palette.border.lighter(114);
+    case UiStyle::Clay:
+        return palette.border.darker(112);
+    case UiStyle::Meadow:
+        return palette.border.darker(105);
+    case UiStyle::Glass:
+    default:
+        return QColor(0, 0, 0, 0);
+    }
+}
+
 WindowPalette windowPaletteForStyle(UiStyle uiStyle) {
     WindowPalette palette;
     switch (uiStyle) {
-    case UiStyle::Mist:
-        palette.fillTop = QColor(18, 24, 34, 236);
-        palette.fillMiddle = QColor(16, 22, 32, 228);
-        palette.fillBottom = QColor(12, 18, 28, 220);
-        palette.border = QColor(132, 158, 188, 122);
-        palette.edgeFadeBase = QColor(8, 14, 22, 255);
-        palette.scrollHandle = QColor(134, 162, 190, 172);
-        break;
-    case UiStyle::Sunrise:
-        palette.fillTop = QColor(58, 42, 86, 236);
-        palette.fillMiddle = QColor(118, 78, 104, 226);
-        palette.fillBottom = QColor(188, 108, 78, 216);
-        palette.border = QColor(255, 220, 194, 126);
-        palette.edgeFadeBase = QColor(26, 18, 20, 255);
-        palette.scrollHandle = QColor(236, 186, 146, 178);
-        break;
     case UiStyle::Meadow:
         palette.fillTop = QColor(26, 44, 34, 224);
         palette.fillMiddle = QColor(20, 36, 28, 214);
@@ -249,9 +394,9 @@ WindowPalette windowPaletteForStyle(UiStyle uiStyle) {
 }  // namespace
 
 NotePalette ThemeHelper::paletteFor(UiStyle uiStyle, int hue, bool hovered) {
+    uiStyle = normalizedUiStyle(uiStyle);
     const bool hasHue = hue >= 0;
-    const int fallbackHue = uiStyle == UiStyle::Sunrise ? 34
-                            : uiStyle == UiStyle::Meadow ? 138
+    const int fallbackHue = uiStyle == UiStyle::Meadow ? 138
                             : uiStyle == UiStyle::Paper ? 42
                             : uiStyle == UiStyle::Pixel ? 132
                             : uiStyle == UiStyle::Neon ? 286
@@ -263,11 +408,7 @@ NotePalette ThemeHelper::paletteFor(UiStyle uiStyle, int hue, bool hovered) {
 
     NotePalette palette;
     palette.shadow = hovered ? QColor(0, 0, 0, 48) : QColor(0, 0, 0, 34);
-    if (uiStyle == UiStyle::Mist) {
-        palette.shadow = hovered ? QColor(0, 0, 0, 86) : QColor(0, 0, 0, 74);
-    } else if (uiStyle == UiStyle::Sunrise) {
-        palette.shadow = hovered ? QColor(66, 38, 26, 46) : QColor(58, 34, 24, 38);
-    } else if (uiStyle == UiStyle::Meadow) {
+    if (uiStyle == UiStyle::Meadow) {
         palette.shadow = hovered ? QColor(10, 34, 18, 56) : QColor(8, 28, 16, 46);
     } else if (uiStyle == UiStyle::Glass) {
         palette.shadow = hovered ? QColor(10, 18, 28, 62) : QColor(8, 14, 24, 50);
@@ -288,15 +429,9 @@ NotePalette ThemeHelper::paletteFor(UiStyle uiStyle, int hue, bool hovered) {
         palette.fillBottom = neutralBottomForStyle(uiStyle, hovered);
         palette.border = neutralBorderForStyle(uiStyle, hovered);
         palette.highlightTop = neutralHighlightForStyle(uiStyle, hovered);
-        if (uiStyle == UiStyle::Mist) {
-            palette.text = QColor(236, 244, 255, 238);
-            palette.placeholder = QColor(168, 188, 212, 182);
-        } else if (uiStyle == UiStyle::Glass) {
+        if (uiStyle == UiStyle::Glass) {
             palette.text = QColor(236, 246, 255, 236);
             palette.placeholder = QColor(176, 198, 224, 172);
-        } else if (uiStyle == UiStyle::Sunrise) {
-            palette.text = QColor(96, 66, 46, 236);
-            palette.placeholder = QColor(142, 104, 78, 182);
         } else if (uiStyle == UiStyle::Meadow) {
             palette.text = QColor(238, 248, 240, 236);
             palette.placeholder = QColor(186, 206, 190, 172);
@@ -327,26 +462,6 @@ NotePalette ThemeHelper::paletteFor(UiStyle uiStyle, int hue, bool hovered) {
     const int bottomLight = hovered ? 204 : 196;
     const int borderLight = hovered ? 232 : 224;
     const int highlightLight = hovered ? 242 : 234;
-
-    if (uiStyle == UiStyle::Mist) {
-        palette.fillTop = colorFromHsl(baseHue, qMin(255, saturation), hovered ? 48 : 42, hovered ? 146 : 130);
-        palette.fillBottom = colorFromHsl(baseHue, qMax(24, saturation - 24), hovered ? 30 : 24, hovered ? 126 : 112);
-        palette.border = colorFromHsl(baseHue, qMin(255, saturation + 24), hovered ? 168 : 154, hovered ? 188 : 168);
-        palette.highlightTop = colorFromHsl(baseHue, qMin(255, saturation + 32), hovered ? 206 : 194, hovered ? 94 : 76);
-        palette.text = QColor(236, 244, 255, 240);
-        palette.placeholder = colorFromHsl(baseHue, qMax(24, saturation - 38), 172, 188);
-        return palette;
-    }
-
-    if (uiStyle == UiStyle::Sunrise) {
-        palette.fillTop = colorFromHsl(baseHue, qMin(255, saturation), hovered ? 228 : 220, hovered ? 108 : 92);
-        palette.fillBottom = colorFromHsl(baseHue, qMax(20, saturation - 20), hovered ? 212 : 204, hovered ? 84 : 70);
-        palette.border = colorFromHsl(baseHue, qMin(255, saturation + 18), hovered ? 238 : 232, hovered ? 154 : 134);
-        palette.highlightTop = colorFromHsl(baseHue, qMin(255, saturation + 24), hovered ? 244 : 238, hovered ? 112 : 92);
-        palette.text = QColor(98, 66, 44, 236);
-        palette.placeholder = colorFromHsl(baseHue, qMax(18, saturation - 30), 132, 176);
-        return palette;
-    }
 
     if (uiStyle == UiStyle::Meadow) {
         palette.fillTop = colorFromHsl(baseHue, qMin(255, saturation), hovered ? 198 : 190, hovered ? 126 : 110);
@@ -389,10 +504,12 @@ NotePalette ThemeHelper::paletteFor(UiStyle uiStyle, int hue, bool hovered) {
 }
 
 WindowPalette ThemeHelper::windowPalette(UiStyle uiStyle) {
+    uiStyle = normalizedUiStyle(uiStyle);
     return windowPaletteForStyle(uiStyle);
 }
 
 QString ThemeHelper::scrollAreaStyleSheet(UiStyle uiStyle, int scrollBarWidth) {
+    uiStyle = normalizedUiStyle(uiStyle);
     const WindowPalette palette = windowPaletteForStyle(uiStyle);
     if (uiStyle == UiStyle::Pixel) {
         const QColor track = QColor(8, 14, 10, 196);
@@ -415,15 +532,27 @@ QString ThemeHelper::scrollAreaStyleSheet(UiStyle uiStyle, int scrollBarWidth) {
             .arg(handleHover.name(QColor::HexArgb));
     }
 
+    const QColor track = scrollTrackForStyle(uiStyle);
+    const QColor trackBorder = scrollTrackBorderForStyle(uiStyle, palette);
     const QColor handle = palette.scrollHandle;
     const QColor handleBorder = palette.border.darker(118);
     const QColor handleHover = palette.scrollHandle.lighter(112);
     const QColor handlePressed = palette.scrollHandle.darker(110);
-    const int handleRadius = scrollBarWidth > 8 ? (scrollBarWidth / 2) : 4;
+    int handleRadius = scrollBarWidth > 8 ? (scrollBarWidth / 2) : 4;
+    if (uiStyle == UiStyle::Graphite) {
+        handleRadius = 3;
+    } else if (uiStyle == UiStyle::Paper) {
+        handleRadius = qMax(4, scrollBarWidth / 2);
+    } else if (uiStyle == UiStyle::Neon) {
+        handleRadius = qMax(5, scrollBarWidth / 2);
+    } else if (uiStyle == UiStyle::Clay) {
+        handleRadius = qMax(6, scrollBarWidth / 2);
+    }
+    const int trackRadius = qMax(2, handleRadius - 1);
     return QStringLiteral(
                "QScrollArea { background: transparent; border: none; }"
                "QScrollArea > QWidget > QWidget { background: transparent; }"
-               "QScrollBar:vertical { background: transparent; width: %1px; margin: 6px 2px 6px 0px; }"
+               "QScrollBar:vertical { background: %7; width: %1px; margin: 6px 2px 6px 0px; border: 1px solid %8; border-radius: %9px; }"
                "QScrollBar::handle:vertical { background: %2; border: 1px solid %3; border-radius: %4px; min-height: 28px; }"
                "QScrollBar::handle:vertical:hover { background: %5; }"
                "QScrollBar::handle:vertical:pressed { background: %6; }"
@@ -434,13 +563,18 @@ QString ThemeHelper::scrollAreaStyleSheet(UiStyle uiStyle, int scrollBarWidth) {
         .arg(handleBorder.name(QColor::HexArgb))
         .arg(handleRadius)
         .arg(handleHover.name(QColor::HexArgb))
-        .arg(handlePressed.name(QColor::HexArgb));
+        .arg(handlePressed.name(QColor::HexArgb))
+        .arg(track.name(QColor::HexArgb))
+        .arg(trackBorder.name(QColor::HexArgb))
+        .arg(trackRadius);
 }
 
 void ThemeHelper::polishMenu(QMenu *menu, UiStyle uiStyle, int hue) {
     if (menu == nullptr) {
         return;
     }
+
+    uiStyle = normalizedUiStyle(uiStyle);
 
     const NotePalette palette = paletteFor(uiStyle, hue, false);
     const WindowPalette window = windowPaletteForStyle(uiStyle);
@@ -451,40 +585,42 @@ void ThemeHelper::polishMenu(QMenu *menu, UiStyle uiStyle, int hue) {
     const QColor selectionBorder = hue >= 0 ? palette.border : window.border.lighter(120);
     const QColor separator = hue >= 0 ? palette.border.darker(130) : window.border.darker(140);
     const QColor disabledText = hue >= 0 ? palette.placeholder : palette.placeholder;
-    const bool pixelStyle = uiStyle == UiStyle::Pixel;
-    const int panelRadius = pixelStyle ? 2 : 14;
-    const int itemRadius = pixelStyle ? 1 : 9;
-    const int indicatorRadius = pixelStyle ? 1 : 6;
-    const QString menuFont = pixelStyle
-                                 ? QStringLiteral("font-family: 'Consolas', 'Courier New', monospace;")
-                                 : QString();
+    const int panelRadius = menuPanelRadiusForStyle(uiStyle);
+    const int itemRadius = menuItemRadiusForStyle(uiStyle);
+    const int indicatorRadius = menuIndicatorRadiusForStyle(uiStyle);
+    const int menuPadding = menuPaddingForStyle(uiStyle);
+    const int itemVerticalPadding = menuItemVerticalPaddingForStyle(uiStyle);
+    const int itemHorizontalPadding = menuItemHorizontalPaddingForStyle(uiStyle);
+    const QString menuFont = menuFontDeclarationForStyle(uiStyle);
+    const QString borderStyle = menuBorderStyleFor(uiStyle);
+    const QColor checkedItemBackground = checkedItemBackgroundFor(uiStyle, selection);
 
     menu->setAttribute(Qt::WA_TranslucentBackground, true);
     menu->setWindowFlag(Qt::NoDropShadowWindowHint, true);
     menu->setStyleSheet(QStringLiteral(
-                           "QMenu {"
-                           "background-color: transparent;"
-                           "%13"
-                           "padding: 8px;"
-                           "border: 1px solid %1;"
-                           "border-radius: %9px;"
-                           "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-                           "stop:0 %2, stop:1 %3);"
-                           "}"
-                           "QMenu::item {"
-                           "padding: 8px 14px;"
-                           "margin: 2px 0px;"
-                           "border-radius: %10px;"
-                           "color: %4;"
+                            "QMenu {"
+                            "background-color: transparent;"
+                            "%13"
+                            "padding: %14px;"
+                            "border: 1px %17 %1;"
+                            "border-radius: %9px;"
+                            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+                            "stop:0 %2, stop:1 %3);"
+                            "}"
+                            "QMenu::item {"
+                            "padding: %15px %16px;"
+                            "margin: 2px 0px;"
+                            "border-radius: %10px;"
+                            "color: %4;"
                            "background: transparent;"
                            "}"
                            "QMenu::item:selected {"
                            "background: %5;"
                            "border: 1px solid %6;"
-                           "}"
-                           "QMenu::item:checked {"
-                           "background: %11;"
-                           "border: 1px solid %6;"
+                            "}"
+                            "QMenu::item:checked {"
+                            "background: %11;"
+                            "border: 1px solid %6;"
                            "}"
                            "QMenu::item:disabled {"
                            "color: %7;"
@@ -521,12 +657,16 @@ void ThemeHelper::polishMenu(QMenu *menu, UiStyle uiStyle, int hue) {
                            .arg(selection.name(QColor::HexArgb))
                            .arg(selectionBorder.name(QColor::HexArgb))
                            .arg(disabledText.name(QColor::HexArgb))
-                           .arg(separator.name(QColor::HexArgb))
-                           .arg(panelRadius)
-                           .arg(itemRadius)
-                            .arg(selection.lighter(106).name(QColor::HexArgb))
+                            .arg(separator.name(QColor::HexArgb))
+                            .arg(panelRadius)
+                            .arg(itemRadius)
+                            .arg(checkedItemBackground.name(QColor::HexArgb))
                             .arg(indicatorRadius)
-                            .arg(menuFont));
+                            .arg(menuFont)
+                            .arg(menuPadding)
+                            .arg(itemVerticalPadding)
+                            .arg(itemHorizontalPadding)
+                            .arg(borderStyle));
 }
 
 }  // namespace glassnote

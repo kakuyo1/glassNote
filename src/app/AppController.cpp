@@ -80,10 +80,70 @@ constexpr int kReminderPollToleranceMsec = 500;
 constexpr int kReminderMaxIntervalMsec = 24 * 24 * 60 * 60 * 1000;
 constexpr int kClipboardInboxPreviewLength = 36;
 constexpr qint64 kAutoUpdateCheckMinIntervalMsec = 24LL * 60LL * 60LL * 1000LL;
+const auto kImportedImageStickerPrefix = QStringLiteral("__image_sticker__:");
 
 const auto kDefaultUpdateManifestUrl = QStringLiteral(
     "https://github.com/kakuyo1/glassNote/releases/latest/download/update-manifest.json");
 const auto kDefaultUpdatePageUrl = QStringLiteral("https://github.com/kakuyo1/glassNote/releases/latest");
+
+bool isImportedImageStickerValue(const QString &value) {
+    return value.trimmed().startsWith(kImportedImageStickerPrefix);
+}
+
+QString importedImageStickerPath(const QString &value) {
+    if (!isImportedImageStickerValue(value)) {
+        return QString();
+    }
+    return value.trimmed().mid(kImportedImageStickerPrefix.size()).trimmed();
+}
+
+QString encodeImportedImageStickerPath(const QString &path) {
+    return kImportedImageStickerPrefix + QDir::toNativeSeparators(path.trimmed());
+}
+
+QString normalizeImportedStickerEntry(const QString &value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+
+    const QString path = isImportedImageStickerValue(trimmed) ? importedImageStickerPath(trimmed) : trimmed;
+    if (path.isEmpty()) {
+        return QString();
+    }
+
+    return encodeImportedImageStickerPath(path);
+}
+
+void appendImportedStickerIfMissing(QVector<QString> *library, const QString &sticker) {
+    if (library == nullptr) {
+        return;
+    }
+
+    const QString normalized = normalizeImportedStickerEntry(sticker);
+    if (normalized.isEmpty()) {
+        return;
+    }
+
+    const QString normalizedCaseFolded = normalized.toCaseFolded();
+    for (const QString &existing : std::as_const(*library)) {
+        if (existing.toCaseFolded() == normalizedCaseFolded) {
+            return;
+        }
+    }
+
+    library->append(normalized);
+}
+
+void mergeImportedStickerLibraries(QVector<QString> *target, const QVector<QString> &source) {
+    if (target == nullptr) {
+        return;
+    }
+
+    for (const QString &sticker : source) {
+        appendImportedStickerIfMissing(target, sticker);
+    }
+}
 
 #ifdef Q_OS_WIN
 const auto kWindowsRunKeyPath = QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run");
@@ -829,6 +889,7 @@ void AppController::refreshWindow() {
     m_mainWindow->setLaunchAtStartupEnabled(m_state.launchAtStartup);
     m_mainWindow->setAutoCheckUpdatesEnabled(m_state.autoCheckUpdates);
     m_mainWindow->setWindowLocked(m_state.windowLocked);
+    m_mainWindow->setImportedStickers(m_state.importedStickers);
     m_mainWindow->setNotes(m_state.notes);
 }
 
@@ -956,9 +1017,17 @@ void AppController::handleNoteHueChangeRequested(const QString &noteId, int hue)
 }
 
 void AppController::handleNoteStickerChangeRequested(const QString &noteId, const QString &sticker) {
+    const QString normalizedImportedSticker = normalizeImportedStickerEntry(sticker);
+    const bool isImportedSticker = isImportedImageStickerValue(sticker);
+
     for (NoteItem &note : m_state.notes) {
         if (note.id == noteId) {
-            note.sticker = sticker;
+            if (isImportedSticker && !normalizedImportedSticker.isEmpty()) {
+                note.sticker = normalizedImportedSticker;
+                appendImportedStickerIfMissing(&m_state.importedStickers, normalizedImportedSticker);
+            } else {
+                note.sticker = sticker;
+            }
             break;
         }
     }
@@ -989,11 +1058,12 @@ void AppController::handleNoteReorderRequested() {
 }
 
 void AppController::handleUiStyleChangeRequested(UiStyle uiStyle) {
-    if (m_state.uiStyle == uiStyle) {
+    const UiStyle normalizedStyle = normalizedUiStyle(uiStyle);
+    if (m_state.uiStyle == normalizedStyle) {
         return;
     }
 
-    m_state.uiStyle = uiStyle;
+    m_state.uiStyle = normalizedStyle;
     refreshWindow();
     updateTrayMenuText();
     m_autoSaveCoordinator->requestSave();
@@ -1179,6 +1249,7 @@ void AppController::handleImportJsonRequested() {
             ++nextOrder;
             m_state.notes.append(merged);
         }
+        mergeImportedStickerLibraries(&m_state.importedStickers, importedState.importedStickers);
 
         ensureAtLeastOneNote();
         refreshWindow();

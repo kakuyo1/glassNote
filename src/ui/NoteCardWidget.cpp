@@ -5,7 +5,10 @@
 #include <QContextMenuEvent>
 #include <QColorDialog>
 #include <QDateTime>
+#include <QDir>
 #include <QEvent>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFrame>
 #include <QGraphicsDropShadowEffect>
 #include <QKeySequence>
@@ -14,6 +17,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -33,6 +37,9 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWindow>
+#include <QSet>
+
+#include <limits>
 
 #include "common/Constants.h"
 #include "theme/ThemeHelper.h"
@@ -42,15 +49,82 @@ namespace glassnote {
 
 namespace {
 
+class PlainTextPasteTextEdit final : public QTextEdit {
+public:
+    using QTextEdit::QTextEdit;
+
+protected:
+    void insertFromMimeData(const QMimeData *source) override {
+        if (source == nullptr) {
+            return;
+        }
+
+        if (source->hasText()) {
+            QTextCursor cursor = textCursor();
+            cursor.insertText(source->text());
+            setTextCursor(cursor);
+            return;
+        }
+
+        QTextEdit::insertFromMimeData(source);
+    }
+};
+
 const QString kChecklistUncheckedPrefix = QStringLiteral("☐ ");
 const QString kChecklistCheckedPrefix = QStringLiteral("☑ ");
 const QString kImageStickerToken = QStringLiteral("__tobyfox__");
+const QString kImportedImageStickerPrefix = QStringLiteral("__image_sticker__:");
 const QString kImageStickerResource = QStringLiteral(":/icons/tobyfox-small.png");
+constexpr int kMinBaseLayerOpacityPercent = 0;
+constexpr int kMaxBaseLayerOpacityPercent = 100;
+constexpr int kBaseLayerOpacityStepPercent = 10;
 
 bool isTobyfoxStickerValue(const QString &value) {
     const QString normalized = value.trimmed();
     return normalized == kImageStickerToken
-           || normalized.contains(QStringLiteral("tobyfox"), Qt::CaseInsensitive);
+           || normalized == QStringLiteral(":/icons/tobyfox-small.png")
+           || normalized == QStringLiteral(":/icons/tobyfox.png");
+}
+
+bool isImportedImageStickerValue(const QString &value) {
+    return value.trimmed().startsWith(kImportedImageStickerPrefix);
+}
+
+QString importedImageStickerPath(const QString &value) {
+    if (!isImportedImageStickerValue(value)) {
+        return QString();
+    }
+    return value.trimmed().mid(kImportedImageStickerPrefix.size()).trimmed();
+}
+
+QString encodeImportedImageStickerPath(const QString &path) {
+    return kImportedImageStickerPrefix + QDir::toNativeSeparators(path.trimmed());
+}
+
+QPixmap stickerPixmapForValue(const QString &value) {
+    if (isTobyfoxStickerValue(value)) {
+        QPixmap stickerPixmap(kImageStickerResource);
+        if (stickerPixmap.isNull()) {
+            stickerPixmap = QPixmap(QStringLiteral(":/icons/tobyfox.png"));
+        }
+        return stickerPixmap;
+    }
+
+    if (isImportedImageStickerValue(value)) {
+        return QPixmap(importedImageStickerPath(value));
+    }
+
+    return QPixmap();
+}
+
+QString fallbackStickerText(const QString &value) {
+    if (isImportedImageStickerValue(value)) {
+        return QStringLiteral("🖼");
+    }
+    if (isTobyfoxStickerValue(value)) {
+        return QStringLiteral("TobyFox");
+    }
+    return value.trimmed();
 }
 
 enum class ChecklistState {
@@ -190,7 +264,7 @@ NoteCardWidget::NoteCardWidget(QWidget *parent)
     displayFont.setPointSize(11);
     m_displayLabel->setFont(displayFont);
 
-    m_editor = new QTextEdit(this);
+    m_editor = new PlainTextPasteTextEdit(this);
     m_editor->setAcceptRichText(true);
     m_editor->setFrameStyle(QFrame::NoFrame);
     m_editor->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -231,6 +305,41 @@ NoteCardWidget::NoteCardWidget(QWidget *parent)
     m_italicButton = createFormatButton(QStringLiteral("I"), QStringLiteral("斜体"), true);
     m_underlineButton = createFormatButton(QStringLiteral("U"), QStringLiteral("下划线"), true);
     m_strikeButton = createFormatButton(QStringLiteral("S"), QStringLiteral("删除线"), true);
+    m_fontFamilyButton = createFormatButton(QStringLiteral("字"), QStringLiteral("字体"), false);
+    m_fontFamilyButton->setPopupMode(QToolButton::InstantPopup);
+    m_fontFamilyMenu = new QMenu(m_fontFamilyButton);
+    ThemeHelper::polishMenu(m_fontFamilyMenu, m_uiStyle, m_hue);
+    struct FontFamilyAction {
+        const char *label;
+        const char *family;
+    };
+    const FontFamilyAction fontFamilyActions[] = {
+        {"默认", ""},
+        {"微软雅黑", "Microsoft YaHei UI"},
+        {"Segoe UI", "Segoe UI"},
+        {"Consolas", "Consolas"},
+        {"Georgia", "Georgia"},
+    };
+    for (const FontFamilyAction &entry : fontFamilyActions) {
+        QAction *action = m_fontFamilyMenu->addAction(QString::fromUtf8(entry.label));
+        action->setCheckable(true);
+        action->setData(QString::fromUtf8(entry.family));
+    }
+    m_fontFamilyButton->setMenu(m_fontFamilyMenu);
+
+    m_fontSizeButton = createFormatButton(QStringLiteral("号"), QStringLiteral("字号"), false);
+    m_fontSizeButton->setPopupMode(QToolButton::InstantPopup);
+    m_fontSizeMenu = new QMenu(m_fontSizeButton);
+    ThemeHelper::polishMenu(m_fontSizeMenu, m_uiStyle, m_hue);
+    const int fontSizes[] = {10, 11, 12, 14, 16, 18, 22, 26, 32};
+    for (int size : fontSizes) {
+        QAction *action = m_fontSizeMenu->addAction(QStringLiteral("%1 pt").arg(size));
+        action->setCheckable(true);
+        action->setData(size);
+    }
+    m_fontSizeButton->setMenu(m_fontSizeMenu);
+
+    m_textColorButton = createFormatButton(QStringLiteral("色"), QStringLiteral("文字颜色"), false);
     m_bulletListButton = createFormatButton(QStringLiteral("•"), QStringLiteral("项目符号列表"), true);
     m_numberedListButton = createFormatButton(QStringLiteral("1."), QStringLiteral("数字编号列表"), true);
     m_checkListButton = createFormatButton(QStringLiteral("☐"), QStringLiteral("复选清单"), true);
@@ -327,6 +436,40 @@ NoteCardWidget::NoteCardWidget(QWidget *parent)
         QTextCharFormat format;
         format.setFontStrikeOut(checked);
         mergeEditorCharFormat(format);
+        m_editor->setFocus(Qt::OtherFocusReason);
+    });
+    if (m_fontFamilyMenu != nullptr) {
+        connect(m_fontFamilyMenu, &QMenu::triggered, this, [this](QAction *action) {
+            if (action == nullptr) {
+                return;
+            }
+            applyEditorFontFamily(action->data().toString());
+            m_editor->setFocus(Qt::OtherFocusReason);
+        });
+    }
+    if (m_fontSizeMenu != nullptr) {
+        connect(m_fontSizeMenu, &QMenu::triggered, this, [this](QAction *action) {
+            if (action == nullptr) {
+                return;
+            }
+            applyEditorFontPointSize(action->data().toDouble());
+            m_editor->setFocus(Qt::OtherFocusReason);
+        });
+    }
+    connect(m_textColorButton, &QToolButton::clicked, this, [this]() {
+        QColor initialColor = m_editor->currentCharFormat().foreground().color();
+        if (!initialColor.isValid()) {
+            initialColor = ThemeHelper::paletteFor(m_uiStyle, m_hue, false).text;
+        }
+
+        const QColor picked = QColorDialog::getColor(initialColor,
+                                                     this,
+                                                     QStringLiteral("选择文字颜色"));
+        if (!picked.isValid()) {
+            return;
+        }
+
+        applyEditorTextColor(picked);
         m_editor->setFocus(Qt::OtherFocusReason);
     });
     connect(m_bulletListButton, &QToolButton::clicked, this, [this]() {
@@ -461,6 +604,39 @@ void NoteCardWidget::setSticker(const QString &sticker) {
     update();
 }
 
+void NoteCardWidget::setImportedStickerLibrary(const QVector<QString> &stickers) {
+    QVector<QString> normalized;
+    normalized.reserve(stickers.size());
+
+    QSet<QString> seen;
+    seen.reserve(stickers.size());
+    for (const QString &entry : stickers) {
+        QString candidate;
+        if (isImportedImageStickerValue(entry)) {
+            const QString path = importedImageStickerPath(entry);
+            if (path.isEmpty()) {
+                continue;
+            }
+            candidate = encodeImportedImageStickerPath(path);
+        } else if (!entry.trimmed().isEmpty()) {
+            candidate = encodeImportedImageStickerPath(entry);
+        }
+
+        if (candidate.isEmpty()) {
+            continue;
+        }
+
+        const QString key = candidate.toCaseFolded();
+        if (seen.contains(key)) {
+            continue;
+        }
+        seen.insert(key);
+        normalized.append(candidate);
+    }
+
+    m_importedStickerLibrary = normalized;
+}
+
 void NoteCardWidget::setLane(NoteLane lane) {
     m_lane = normalizedNoteLane(lane);
 }
@@ -520,11 +696,12 @@ void NoteCardWidget::setReminderEpochMsec(qint64 reminderEpochMsec) {
 }
 
 void NoteCardWidget::setUiStyle(UiStyle uiStyle) {
-    if (m_uiStyle == uiStyle) {
+    const UiStyle normalizedStyle = normalizedUiStyle(uiStyle);
+    if (m_uiStyle == normalizedStyle) {
         return;
     }
 
-    m_uiStyle = uiStyle;
+    m_uiStyle = normalizedStyle;
     updateDisplayText();
     update();
 }
@@ -692,7 +869,39 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
         }
     }
 
-    QMenu *uiStyleMenu = menu.addMenu(QStringLiteral("界面风格（全局）"));
+    for (const QString &storedSticker : std::as_const(m_importedStickerLibrary)) {
+        if (!isImportedImageStickerValue(storedSticker)) {
+            continue;
+        }
+
+        const QString encodedSticker = encodeImportedImageStickerPath(importedImageStickerPath(storedSticker));
+        const QString path = importedImageStickerPath(encodedSticker);
+        if (path.isEmpty()) {
+            continue;
+        }
+
+        QString displayName = QFileInfo(path).fileName();
+        if (displayName.isEmpty()) {
+            displayName = path;
+        }
+
+        QAction *action = stickerMenu->addAction(QStringLiteral("🖼 %1").arg(displayName));
+        action->setCheckable(true);
+        action->setData(encodedSticker);
+        action->setToolTip(path);
+        action->setChecked(importedImageStickerPath(m_sticker).compare(path, Qt::CaseInsensitive) == 0);
+    }
+
+    stickerMenu->addSeparator();
+    QAction *importStickerAction = stickerMenu->addAction(QStringLiteral("🖼 导入贴纸..."));
+    importStickerAction->setCheckable(true);
+    importStickerAction->setChecked(isImportedImageStickerValue(m_sticker));
+    const QString importedPath = importedImageStickerPath(m_sticker);
+    if (!importedPath.isEmpty()) {
+        importStickerAction->setToolTip(QFileInfo(importedPath).fileName());
+    }
+
+    QMenu *uiStyleMenu = menu.addMenu(QStringLiteral("界面风格"));
     ThemeHelper::polishMenu(uiStyleMenu, m_uiStyle);
     struct UiStyleAction {
         const char *label;
@@ -700,8 +909,6 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
     };
     const UiStyleAction uiStyleActions[] = {
         {"玻璃拟态", UiStyle::Glass},
-        {"雾面冷调", UiStyle::Mist},
-        {"日出暖调", UiStyle::Sunrise},
         {"森林氧感", UiStyle::Meadow},
         {"石墨商务", UiStyle::Graphite},
         {"纸张手账", UiStyle::Paper},
@@ -725,15 +932,15 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
 
     QMenu *opacityMenu = menu.addMenu(QStringLiteral("底层透明度"));
     ThemeHelper::polishMenu(opacityMenu, m_uiStyle, m_hue);
-    const int minPercent = static_cast<int>(constants::kMinBaseLayerOpacity * 100.0);
-    const int maxPercent = static_cast<int>(constants::kMaxBaseLayerOpacity * 100.0);
-    const int stepPercent = static_cast<int>(constants::kBaseLayerOpacityStep * 100.0);
-    for (int percent = minPercent; percent <= maxPercent; percent += stepPercent) {
+    for (int percent = kMinBaseLayerOpacityPercent;
+         percent <= kMaxBaseLayerOpacityPercent;
+         percent += kBaseLayerOpacityStepPercent) {
         QAction *action = opacityMenu->addAction(QStringLiteral("%1%").arg(percent));
         action->setCheckable(true);
         action->setData(percent);
         const qreal optionOpacity = static_cast<qreal>(percent) / 100.0;
-        action->setChecked(qAbs(optionOpacity - m_baseLayerOpacity) < (constants::kBaseLayerOpacityStep * 0.5));
+        action->setChecked(qAbs(optionOpacity - m_baseLayerOpacity)
+                           < (static_cast<qreal>(kBaseLayerOpacityStepPercent) / 200.0));
     }
 
     menu.addSeparator();
@@ -837,13 +1044,26 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
         return;
     }
 
+    if (chosen == importStickerAction) {
+        const QString filePath = QFileDialog::getOpenFileName(this,
+                                                              QStringLiteral("选择贴纸图片"),
+                                                              QString(),
+                                                              QStringLiteral("图片文件 (*.png *.jpg *.jpeg *.bmp *.gif *.webp *.svg)"));
+        if (filePath.isEmpty()) {
+            return;
+        }
+
+        emit stickerChangeRequested(m_noteId, encodeImportedImageStickerPath(filePath));
+        return;
+    }
+
     if (chosen->parent() == stickerMenu) {
         emit stickerChangeRequested(m_noteId, chosen->data().toString());
         return;
     }
 
     if (chosen->parent() == uiStyleMenu) {
-        const UiStyle selectedStyle = static_cast<UiStyle>(chosen->data().toInt());
+        const UiStyle selectedStyle = normalizedUiStyle(static_cast<UiStyle>(chosen->data().toInt()));
         emit uiStyleChangeRequested(selectedStyle);
         return;
     }
@@ -963,9 +1183,6 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
     case UiStyle::Pixel:
         radiusBase = 2.0;
         break;
-    case UiStyle::Mist:
-        radiusBase = 14.0;
-        break;
     case UiStyle::Graphite:
         radiusBase = 12.0;
         break;
@@ -981,7 +1198,6 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
     case UiStyle::Glass:
         radiusBase = 16.0;
         break;
-    case UiStyle::Sunrise:
     case UiStyle::Meadow:
     default:
         radiusBase = constants::kCardCornerRadius;
@@ -993,27 +1209,7 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
                                              ThemeHelper::paletteFor(m_uiStyle, m_hue, true),
                                              visualHoverProgress);
 
-    if (m_uiStyle == UiStyle::Mist) {
-        QColor shadowColor = palette.shadow;
-        shadowColor.setAlpha(qBound(28,
-                                    static_cast<int>((shadowColor.alpha() * 0.78)
-                                                     + (44.0 * m_dropHoverProgress)),
-                                    180));
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(shadowColor);
-        const QRectF shadowRect = bodyRect.adjusted(0.0, 2.0 * m_uiScale, 0.0, 2.0 * m_uiScale);
-        painter.drawRoundedRect(shadowRect, radius + (1.0 * m_uiScale), radius + (1.0 * m_uiScale));
-    } else if (m_uiStyle == UiStyle::Sunrise) {
-        QColor shadowColor = palette.shadow;
-        shadowColor.setAlpha(qBound(24,
-                                    static_cast<int>((shadowColor.alpha() * 0.74)
-                                                     + (40.0 * m_dropHoverProgress)),
-                                    172));
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(shadowColor);
-        const QRectF shadowRect = bodyRect.adjusted(0.0, 2.0 * m_uiScale, 0.0, 2.0 * m_uiScale);
-        painter.drawRoundedRect(shadowRect, radius + (1.0 * m_uiScale), radius + (1.0 * m_uiScale));
-    } else if (m_uiStyle != UiStyle::Pixel) {
+    if (m_uiStyle != UiStyle::Pixel) {
         QColor shadowColor = palette.shadow;
         shadowColor.setAlpha(qBound(18,
                                     static_cast<int>((shadowColor.alpha() * 0.56)
@@ -1053,56 +1249,16 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
         sheen.setColorAt(0.35, QColor(206, 224, 244, 12));
         sheen.setColorAt(1.0, QColor(18, 30, 46, 6));
         painter.fillPath(bodyPath, sheen);
-        break;
-    }
-    case UiStyle::Mist: {
-        QLinearGradient frost(bodyRect.topLeft(), bodyRect.bottomLeft());
-        frost.setColorAt(0.0, QColor(198, 220, 246, 28));
-        frost.setColorAt(0.45, QColor(160, 190, 222, 14));
-        frost.setColorAt(1.0, QColor(98, 126, 160, 8));
-        painter.fillPath(bodyPath, frost);
 
-        QLinearGradient depth(bodyRect.topLeft(), bodyRect.bottomLeft());
-        depth.setColorAt(0.0, QColor(255, 255, 255, 7));
-        depth.setColorAt(1.0, QColor(0, 0, 0, 22));
-        painter.fillPath(bodyPath, depth);
-
-        painter.setPen(QPen(QColor(174, 202, 228, 14), 1.0));
-        const int noiseStep = qMax(4, static_cast<int>(5.0 * m_uiScale));
-        for (int y = static_cast<int>(bodyRect.top()) + 2; y < static_cast<int>(bodyRect.bottom()) - 1; y += noiseStep) {
-            for (int x = static_cast<int>(bodyRect.left()) + 2; x < static_cast<int>(bodyRect.right()) - 1; x += noiseStep) {
-                const int hash = ((x * 19) ^ (y * 23)) & 63;
-                if (hash == 0) {
-                    painter.drawPoint(x, y);
-                }
-            }
-        }
-        break;
-    }
-    case UiStyle::Sunrise: {
-        QLinearGradient dawn(bodyRect.topLeft(), bodyRect.bottomLeft());
-        dawn.setColorAt(0.0, QColor(255, 236, 220, 28));
-        dawn.setColorAt(0.42, QColor(255, 198, 166, 16));
-        dawn.setColorAt(1.0, QColor(178, 98, 84, 9));
-        painter.fillPath(bodyPath, dawn);
-
-        QRadialGradient glow(bodyRect.center().x(),
-                             bodyRect.bottom() - (bodyRect.height() * 0.08),
-                             bodyRect.width() * 0.86);
-        glow.setColorAt(0.0, QColor(255, 226, 170, 50));
-        glow.setColorAt(0.45, QColor(255, 176, 124, 18));
-        glow.setColorAt(1.0, QColor(255, 150, 106, 0));
-        painter.fillPath(bodyPath, glow);
-
-        painter.setPen(QPen(QColor(255, 226, 198, 14), 1.0));
-        const int noiseStep = qMax(4, static_cast<int>(5.0 * m_uiScale));
-        for (int y = static_cast<int>(bodyRect.top()) + 2; y < static_cast<int>(bodyRect.bottom()) - 1; y += noiseStep) {
-            for (int x = static_cast<int>(bodyRect.left()) + 2; x < static_cast<int>(bodyRect.right()) - 1; x += noiseStep) {
-                const int hash = ((x * 23) ^ (y * 31)) & 63;
-                if (hash == 0) {
-                    painter.drawPoint(x, y);
-                }
-            }
+        painter.setPen(QPen(QColor(226, 242, 255, 10), 1.0));
+        const int prismStep = qMax(16, static_cast<int>(20.0 * m_uiScale));
+        for (int x = static_cast<int>(bodyRect.left()) - prismStep;
+             x < static_cast<int>(bodyRect.right()) + prismStep;
+             x += prismStep) {
+            painter.drawLine(x,
+                             static_cast<int>(bodyRect.top()) + 1,
+                             x + prismStep,
+                             static_cast<int>(bodyRect.bottom()) - 1);
         }
         break;
     }
@@ -1119,6 +1275,19 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
         depth.setColorAt(0.0, QColor(232, 246, 236, 8));
         depth.setColorAt(1.0, QColor(18, 62, 40, 16));
         painter.fillPath(bodyPath, depth);
+
+        painter.setPen(QPen(QColor(178, 222, 184, 10), 1.0));
+        const int contourStep = qMax(8, static_cast<int>(11.0 * m_uiScale));
+        for (int y = static_cast<int>(bodyRect.top()) + contourStep;
+             y < static_cast<int>(bodyRect.bottom()) - 2;
+             y += contourStep) {
+            if (((y / contourStep) & 1) == 0) {
+                painter.drawLine(static_cast<int>(bodyRect.left()) + 3,
+                                 y,
+                                 static_cast<int>(bodyRect.right()) - 3,
+                                 y);
+            }
+        }
         break;
     }
     case UiStyle::Graphite: {
@@ -1136,6 +1305,21 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
                              static_cast<int>(bodyRect.right()) - 2,
                              y);
         }
+
+        painter.setPen(QPen(QColor(200, 216, 238, 18), 1.0));
+        const int cornerLen = qMax(6, static_cast<int>(9.0 * m_uiScale));
+        const int left = static_cast<int>(bodyRect.left()) + 3;
+        const int right = static_cast<int>(bodyRect.right()) - 3;
+        const int top = static_cast<int>(bodyRect.top()) + 3;
+        const int bottom = static_cast<int>(bodyRect.bottom()) - 3;
+        painter.drawLine(left, top, left + cornerLen, top);
+        painter.drawLine(left, top, left, top + cornerLen);
+        painter.drawLine(right - cornerLen, top, right, top);
+        painter.drawLine(right, top, right, top + cornerLen);
+        painter.drawLine(left, bottom - cornerLen, left, bottom);
+        painter.drawLine(left, bottom, left + cornerLen, bottom);
+        painter.drawLine(right - cornerLen, bottom, right, bottom);
+        painter.drawLine(right, bottom - cornerLen, right, bottom);
         break;
     }
     case UiStyle::Paper: {
@@ -1152,6 +1336,20 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
                              static_cast<int>(bodyRect.right()) - 4,
                              y);
         }
+
+        painter.setPen(QPen(QColor(168, 132, 94, 28), 1.0));
+        const int marginX = static_cast<int>(bodyRect.left()) + qMax(12, static_cast<int>(14.0 * m_uiScale));
+        painter.drawLine(marginX,
+                         static_cast<int>(bodyRect.top()) + 4,
+                         marginX,
+                         static_cast<int>(bodyRect.bottom()) - 4);
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(176, 142, 106, 20));
+        const qreal punchRadius = qMax<qreal>(1.4, 1.8 * m_uiScale);
+        const qreal punchX = bodyRect.left() + qMax<qreal>(5.0, 7.0 * m_uiScale);
+        painter.drawEllipse(QPointF(punchX, bodyRect.top() + (bodyRect.height() * 0.28)), punchRadius, punchRadius);
+        painter.drawEllipse(QPointF(punchX, bodyRect.top() + (bodyRect.height() * 0.72)), punchRadius, punchRadius);
         break;
     }
     case UiStyle::Pixel: {
@@ -1195,6 +1393,19 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
         neonEdge.setColorAt(0.0, QColor(255, 176, 255, 28));
         neonEdge.setColorAt(1.0, QColor(0, 255, 232, 16));
         painter.fillPath(bodyPath, neonEdge);
+
+        painter.setPen(QPen(QColor(164, 255, 246, 14), 1.0));
+        const int scanStep = qMax(6, static_cast<int>(8.0 * m_uiScale));
+        for (int y = static_cast<int>(bodyRect.top()) + scanStep;
+             y < static_cast<int>(bodyRect.bottom()) - 2;
+             y += scanStep) {
+            if (((y / scanStep) & 1) == 0) {
+                painter.drawLine(static_cast<int>(bodyRect.left()) + 2,
+                                 y,
+                                 static_cast<int>(bodyRect.right()) - 2,
+                                 y);
+            }
+        }
         break;
     }
     case UiStyle::Clay: {
@@ -1210,6 +1421,12 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
         soft.setColorAt(0.0, QColor(255, 228, 196, 18));
         soft.setColorAt(1.0, QColor(188, 120, 82, 0));
         painter.fillPath(bodyPath, soft);
+
+        QLinearGradient rim(bodyRect.topLeft(), bodyRect.bottomLeft());
+        rim.setColorAt(0.0, QColor(255, 246, 230, 22));
+        rim.setColorAt(0.58, QColor(255, 246, 230, 0));
+        rim.setColorAt(1.0, QColor(94, 58, 38, 20));
+        painter.fillPath(bodyPath, rim);
         break;
     }
     }
@@ -1257,28 +1474,21 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
                                                              -iconPadding,
                                                              -iconPadding);
 
+        QString displayStickerText = fallbackStickerText(stickerText);
         QSize contentSize;
-        QPixmap stickerPixmap;
-        const bool useImageSticker = isTobyfoxStickerValue(stickerText);
-        if (useImageSticker) {
-            stickerPixmap = QPixmap(kImageStickerResource);
-            if (stickerPixmap.isNull()) {
-                stickerPixmap = QPixmap(QStringLiteral(":/icons/tobyfox.png"));
-            }
-
-            if (!stickerPixmap.isNull()) {
-                const int iconSize = qMax(14, static_cast<int>(18.0 * m_uiScale));
-                stickerPixmap = stickerPixmap.scaled(iconSize,
-                                                     iconSize,
-                                                     Qt::KeepAspectRatio,
-                                                     Qt::SmoothTransformation);
-                contentSize = stickerPixmap.size();
-            }
+        QPixmap stickerPixmap = stickerPixmapForValue(stickerText);
+        if (!stickerPixmap.isNull()) {
+            const int iconSize = qMax(14, static_cast<int>(18.0 * m_uiScale));
+            stickerPixmap = stickerPixmap.scaled(iconSize,
+                                                 iconSize,
+                                                 Qt::KeepAspectRatio,
+                                                 Qt::SmoothTransformation);
+            contentSize = stickerPixmap.size();
         }
 
         if (contentSize.isEmpty()) {
             const QFontMetrics metrics(stickerFont);
-            contentSize = metrics.size(Qt::TextSingleLine, stickerText);
+            contentSize = metrics.size(Qt::TextSingleLine, displayStickerText);
         }
 
         const QRect stickerRect(anchorRect.right() - contentSize.width() + 1,
@@ -1295,7 +1505,7 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
             painter.drawPixmap(iconX, iconY, stickerPixmap);
         } else {
             painter.setPen(stickerColor);
-            painter.drawText(stickerRect, Qt::AlignCenter, stickerText);
+            painter.drawText(stickerRect, Qt::AlignCenter, displayStickerText);
         }
     }
 
@@ -1447,6 +1657,7 @@ bool NoteCardWidget::eventFilter(QObject *watched, QEvent *event) {
             finishEditing();
         } else if (event->type() == QEvent::KeyPress) {
             auto *keyEvent = static_cast<QKeyEvent *>(event);
+
             if (handleEditorShortcut(keyEvent)) {
                 return true;
             }
@@ -1469,12 +1680,15 @@ bool NoteCardWidget::eventFilter(QObject *watched, QEvent *event) {
                     return true;
                 }
 
-                if ((modifiers & Qt::ShiftModifier) == 0) {
-                    if (handleListAndChecklistEnter()) {
+                if ((modifiers & Qt::ShiftModifier) != 0) {
+                    if (handleSoftLineBreakInListContext()) {
                         return true;
                     }
-                    if (m_editor->textCursor().currentList() == nullptr) {
-                        finishEditing();
+                    return QWidget::eventFilter(watched, event);
+                }
+
+                if ((modifiers & Qt::ShiftModifier) == 0) {
+                    if (handleListAndChecklistEnter()) {
                         return true;
                     }
                 }
@@ -1528,6 +1742,12 @@ void NoteCardWidget::updateDisplayText() {
 
     if (m_alignMenu != nullptr) {
         ThemeHelper::polishMenu(m_alignMenu, m_uiStyle, m_hue);
+    }
+    if (m_fontFamilyMenu != nullptr) {
+        ThemeHelper::polishMenu(m_fontFamilyMenu, m_uiStyle, m_hue);
+    }
+    if (m_fontSizeMenu != nullptr) {
+        ThemeHelper::polishMenu(m_fontSizeMenu, m_uiStyle, m_hue);
     }
 
     const bool pixelStyle = m_uiStyle == UiStyle::Pixel;
@@ -1612,7 +1832,132 @@ void NoteCardWidget::updateDisplayText() {
         if (m_displayGlowEffect != nullptr) {
             m_displayGlowEffect->setEnabled(false);
         }
-        const QColor selectionTextColor = (toolbarChecked.lightness() < 136)
+
+        QColor styleToolbarTop = toolbarTop;
+        QColor styleToolbarBottom = toolbarBottom;
+        QColor styleToolbarHover = toolbarHover;
+        QColor styleToolbarChecked = toolbarChecked;
+        QColor styleToolbarBorder = palette.border;
+        QColor styleEditorBackground = QColor(255, 255, 255, 0);
+        QColor styleEditorBorder = QColor(255, 255, 255, 0);
+        QColor styleSearchBackground = QColor(255, 255, 255, 20);
+        int toolbarRadius = 12;
+        int buttonRadius = 8;
+        int lineEditRadius = 8;
+        int editorRadius = 10;
+        int editorPadding = 5;
+        QString editorBorderStyle = QStringLiteral("none");
+        QString toolbarBorderStyle = QStringLiteral("solid");
+        QString styleFontFamily = QStringLiteral("'Segoe UI', 'Microsoft YaHei UI', sans-serif");
+
+        switch (m_uiStyle) {
+        case UiStyle::Graphite:
+            styleToolbarTop = blendColor(toolbarTop, QColor(216, 226, 242, 170), 0.42);
+            styleToolbarBottom = blendColor(toolbarBottom, QColor(38, 48, 68, 152), 0.36);
+            styleToolbarHover = blendColor(toolbarHover, QColor(128, 154, 188, 128), 0.45);
+            styleToolbarChecked = blendColor(toolbarChecked, QColor(134, 164, 204, 156), 0.5);
+            styleToolbarBorder = blendColor(palette.border, QColor(158, 176, 204, 190), 0.48);
+            styleEditorBackground = QColor(10, 16, 24, 92);
+            styleEditorBorder = QColor(168, 186, 212, 88);
+            styleSearchBackground = QColor(16, 24, 36, 132);
+            toolbarRadius = 8;
+            buttonRadius = 5;
+            lineEditRadius = 6;
+            editorRadius = 6;
+            editorPadding = 6;
+            editorBorderStyle = QStringLiteral("1px solid %1").arg(styleEditorBorder.name(QColor::HexArgb));
+            styleFontFamily = QStringLiteral("'Segoe UI', 'Bahnschrift', 'Microsoft YaHei UI', sans-serif");
+            break;
+        case UiStyle::Paper:
+            styleToolbarTop = blendColor(toolbarTop, QColor(255, 248, 230, 226), 0.54);
+            styleToolbarBottom = blendColor(toolbarBottom, QColor(210, 184, 146, 138), 0.44);
+            styleToolbarHover = blendColor(toolbarHover, QColor(220, 184, 146, 126), 0.52);
+            styleToolbarChecked = blendColor(toolbarChecked, QColor(204, 162, 122, 138), 0.55);
+            styleToolbarBorder = blendColor(palette.border, QColor(160, 124, 90, 170), 0.55);
+            styleEditorBackground = QColor(255, 250, 238, 118);
+            styleEditorBorder = QColor(150, 116, 82, 110);
+            styleSearchBackground = QColor(255, 248, 232, 168);
+            toolbarRadius = 7;
+            buttonRadius = 3;
+            lineEditRadius = 3;
+            editorRadius = 4;
+            editorPadding = 6;
+            editorBorderStyle = QStringLiteral("1px dotted %1").arg(styleEditorBorder.name(QColor::HexArgb));
+            toolbarBorderStyle = QStringLiteral("dashed");
+            styleFontFamily = QStringLiteral("'Georgia', 'Times New Roman', 'Microsoft YaHei UI', serif");
+            break;
+        case UiStyle::Neon:
+            styleToolbarTop = blendColor(toolbarTop, QColor(198, 88, 255, 120), 0.46);
+            styleToolbarBottom = blendColor(toolbarBottom, QColor(22, 198, 232, 98), 0.4);
+            styleToolbarHover = blendColor(toolbarHover, QColor(144, 255, 250, 148), 0.6);
+            styleToolbarChecked = blendColor(toolbarChecked, QColor(224, 138, 255, 162), 0.62);
+            styleToolbarBorder = blendColor(palette.border, QColor(152, 248, 242, 170), 0.5);
+            styleEditorBackground = QColor(18, 10, 30, 132);
+            styleEditorBorder = QColor(136, 234, 255, 116);
+            styleSearchBackground = QColor(32, 20, 54, 168);
+            toolbarRadius = 13;
+            buttonRadius = 10;
+            lineEditRadius = 10;
+            editorRadius = 12;
+            editorPadding = 6;
+            editorBorderStyle = QStringLiteral("1px solid %1").arg(styleEditorBorder.name(QColor::HexArgb));
+            styleFontFamily = QStringLiteral("'Bahnschrift', 'Segoe UI', 'Microsoft YaHei UI', sans-serif");
+            break;
+        case UiStyle::Clay:
+            styleToolbarTop = blendColor(toolbarTop, QColor(255, 234, 208, 198), 0.52);
+            styleToolbarBottom = blendColor(toolbarBottom, QColor(190, 142, 112, 138), 0.44);
+            styleToolbarHover = blendColor(toolbarHover, QColor(230, 174, 132, 120), 0.5);
+            styleToolbarChecked = blendColor(toolbarChecked, QColor(216, 156, 116, 140), 0.52);
+            styleToolbarBorder = blendColor(palette.border, QColor(168, 122, 90, 178), 0.54);
+            styleEditorBackground = QColor(255, 242, 224, 96);
+            styleEditorBorder = QColor(176, 124, 86, 102);
+            styleSearchBackground = QColor(252, 236, 212, 148);
+            toolbarRadius = 16;
+            buttonRadius = 11;
+            lineEditRadius = 11;
+            editorRadius = 14;
+            editorPadding = 7;
+            editorBorderStyle = QStringLiteral("1px solid %1").arg(styleEditorBorder.name(QColor::HexArgb));
+            styleFontFamily = QStringLiteral("'Trebuchet MS', 'Segoe UI', 'Microsoft YaHei UI', sans-serif");
+            break;
+        case UiStyle::Meadow:
+            styleToolbarTop = blendColor(toolbarTop, QColor(214, 242, 220, 170), 0.42);
+            styleToolbarBottom = blendColor(toolbarBottom, QColor(58, 108, 74, 148), 0.38);
+            styleToolbarHover = blendColor(toolbarHover, QColor(132, 198, 144, 128), 0.52);
+            styleToolbarChecked = blendColor(toolbarChecked, QColor(144, 208, 152, 150), 0.56);
+            styleToolbarBorder = blendColor(palette.border, QColor(130, 188, 142, 182), 0.48);
+            styleEditorBackground = QColor(16, 36, 22, 82);
+            styleEditorBorder = QColor(154, 212, 162, 92);
+            styleSearchBackground = QColor(22, 44, 30, 136);
+            toolbarRadius = 14;
+            buttonRadius = 9;
+            lineEditRadius = 10;
+            editorRadius = 12;
+            editorPadding = 6;
+            editorBorderStyle = QStringLiteral("1px solid %1").arg(styleEditorBorder.name(QColor::HexArgb));
+            styleFontFamily = QStringLiteral("'Calibri', 'Segoe UI', 'Microsoft YaHei UI', sans-serif");
+            break;
+        case UiStyle::Glass:
+        default:
+            styleToolbarTop = blendColor(toolbarTop, QColor(228, 242, 255, 176), 0.4);
+            styleToolbarBottom = blendColor(toolbarBottom, QColor(48, 78, 112, 124), 0.34);
+            styleToolbarHover = blendColor(toolbarHover, QColor(186, 214, 242, 120), 0.45);
+            styleToolbarChecked = blendColor(toolbarChecked, QColor(194, 226, 248, 144), 0.5);
+            styleToolbarBorder = blendColor(palette.border, QColor(182, 210, 236, 168), 0.45);
+            styleEditorBackground = QColor(14, 24, 36, 52);
+            styleEditorBorder = QColor(166, 196, 228, 84);
+            styleSearchBackground = QColor(18, 30, 46, 118);
+            toolbarRadius = 14;
+            buttonRadius = 9;
+            lineEditRadius = 9;
+            editorRadius = 11;
+            editorPadding = 6;
+            editorBorderStyle = QStringLiteral("1px solid %1").arg(styleEditorBorder.name(QColor::HexArgb));
+            styleFontFamily = QStringLiteral("'Corbel', 'Segoe UI', 'Microsoft YaHei UI', sans-serif");
+            break;
+        }
+
+        const QColor selectionTextColor = (styleToolbarChecked.lightness() < 136)
                                               ? QColor(255, 255, 255, 245)
                                               : QColor(56, 36, 24, 238);
         m_displayLabel->setStyleSheet(isEmpty
@@ -1624,25 +1969,39 @@ void NoteCardWidget::updateDisplayText() {
         m_editor->setCursorWidth(1);
         m_editor->setOverwriteMode(false);
         m_editor->setStyleSheet(
-            QStringLiteral("QTextEdit { color: %1; background: transparent; border: none;"
-                           "selection-background-color: %2; selection-color: %3; }")
+            QStringLiteral("QTextEdit {"
+                           "color: %1;"
+                           "background: %2;"
+                           "border: %3;"
+                           "border-radius: %4px;"
+                           "padding: %5px;"
+                           "selection-background-color: %6;"
+                           "selection-color: %7;"
+                           "font-family: %8;"
+                           "}")
                 .arg(palette.text.name(QColor::HexArgb))
-                .arg(toolbarChecked.name(QColor::HexArgb))
-                .arg(selectionTextColor.name(QColor::HexArgb)));
+                .arg(styleEditorBackground.name(QColor::HexArgb))
+                .arg(editorBorderStyle)
+                .arg(editorRadius)
+                .arg(editorPadding)
+                .arg(styleToolbarChecked.name(QColor::HexArgb))
+                .arg(selectionTextColor.name(QColor::HexArgb))
+                .arg(styleFontFamily));
 
         m_formatBar->setStyleSheet(
             QStringLiteral("QWidget#formatBar {"
                            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
                            "stop:0 %1, stop:1 %2);"
-                           "border: 1px solid %3;"
-                           "border-radius: 12px;"
+                           "border: 1px %10 %3;"
+                           "border-radius: %11px;"
                            "}"
                            "QToolButton {"
                            "color: %4;"
                            "background: transparent;"
                            "border: 1px solid transparent;"
-                           "border-radius: 8px;"
-                           "padding: 2px 6px;"
+                           "border-radius: %12px;"
+                           "padding: 2px 7px;"
+                           "font-family: %13;"
                            "}"
                            "QToolButton:hover {"
                            "background: %5;"
@@ -1657,25 +2016,32 @@ void NoteCardWidget::updateDisplayText() {
                            "}"
                            "QLineEdit {"
                            "color: %4;"
-                           "background: rgba(255,255,255,0.08);"
+                           "background: %14;"
                            "border: 1px solid %3;"
-                           "border-radius: 8px;"
+                           "border-radius: %15px;"
                            "padding: 2px 8px;"
                            "selection-background-color: %7;"
                            "selection-color: %9;"
+                           "font-family: %13;"
                            "}"
                            "QLineEdit:focus {"
                            "border: 1px solid %8;"
                            "}")
-                .arg(toolbarTop.name(QColor::HexArgb))
-                .arg(toolbarBottom.name(QColor::HexArgb))
-                .arg(palette.border.name(QColor::HexArgb))
+                .arg(styleToolbarTop.name(QColor::HexArgb))
+                .arg(styleToolbarBottom.name(QColor::HexArgb))
+                .arg(styleToolbarBorder.name(QColor::HexArgb))
                 .arg(palette.text.name(QColor::HexArgb))
-                .arg(toolbarHover.name(QColor::HexArgb))
-                .arg(palette.border.name(QColor::HexArgb))
-                .arg(toolbarChecked.name(QColor::HexArgb))
-                .arg(palette.border.lighter(110).name(QColor::HexArgb))
-                .arg(selectionTextColor.name(QColor::HexArgb)));
+                .arg(styleToolbarHover.name(QColor::HexArgb))
+                .arg(styleToolbarBorder.name(QColor::HexArgb))
+                .arg(styleToolbarChecked.name(QColor::HexArgb))
+                .arg(styleToolbarBorder.lighter(112).name(QColor::HexArgb))
+                .arg(selectionTextColor.name(QColor::HexArgb))
+                .arg(toolbarBorderStyle)
+                .arg(toolbarRadius)
+                .arg(buttonRadius)
+                .arg(styleFontFamily)
+                .arg(styleSearchBackground.name(QColor::HexArgb))
+                .arg(lineEditRadius));
     }
 
     updateFormattingToolbarState();
@@ -1729,6 +2095,53 @@ void NoteCardWidget::mergeEditorCharFormat(const QTextCharFormat &format) {
     cursor.mergeCharFormat(format);
     m_editor->mergeCurrentCharFormat(format);
     updateFormattingToolbarState();
+}
+
+QTextCharFormat NoteCardWidget::defaultEditorCharFormat() const {
+    QTextCharFormat format;
+    QFont baseFont = (m_editor != nullptr) ? m_editor->font() : QApplication::font();
+    baseFont.setWeight(QFont::Normal);
+    baseFont.setBold(false);
+    baseFont.setItalic(false);
+    baseFont.setUnderline(false);
+    baseFont.setStrikeOut(false);
+    format.setFont(baseFont, QTextCharFormat::FontPropertiesAll);
+    format.setFontLetterSpacingType(QFont::PercentageSpacing);
+    format.setFontLetterSpacing(100.0);
+    format.clearForeground();
+    format.clearBackground();
+    format.setVerticalAlignment(QTextCharFormat::AlignNormal);
+    return format;
+}
+
+void NoteCardWidget::applyEditorFontFamily(const QString &family) {
+    QString selectedFamily = family.trimmed();
+    if (selectedFamily.isEmpty()) {
+        selectedFamily = m_editor->font().family();
+    }
+
+    QTextCharFormat format;
+    format.setFontFamilies(QStringList{selectedFamily});
+    mergeEditorCharFormat(format);
+}
+
+void NoteCardWidget::applyEditorFontPointSize(qreal pointSize) {
+    const qreal basePointSize = m_editor->font().pointSizeF() > 0.0 ? m_editor->font().pointSizeF() : 11.0;
+    const qreal selectedPointSize = pointSize > 0.0 ? pointSize : basePointSize;
+
+    QTextCharFormat format;
+    format.setFontPointSize(selectedPointSize);
+    mergeEditorCharFormat(format);
+}
+
+void NoteCardWidget::applyEditorTextColor(const QColor &color) {
+    if (!color.isValid()) {
+        return;
+    }
+
+    QTextCharFormat format;
+    format.setForeground(color);
+    mergeEditorCharFormat(format);
 }
 
 void NoteCardWidget::toggleListStyle(QTextListFormat::Style style) {
@@ -1816,15 +2229,10 @@ void NoteCardWidget::clearEditorFormatting() {
 
     cursor.beginEditBlock();
 
-    QTextCharFormat clearFormat;
-    clearFormat.setFontWeight(QFont::Normal);
-    clearFormat.setFontItalic(false);
-    clearFormat.setFontUnderline(false);
-    clearFormat.setFontStrikeOut(false);
-    clearFormat.clearBackground();
-    clearFormat.clearForeground();
+    const QTextCharFormat clearFormat = defaultEditorCharFormat();
     cursor.mergeCharFormat(clearFormat);
     m_editor->mergeCurrentCharFormat(clearFormat);
+    m_editor->setCurrentCharFormat(clearFormat);
 
     for (QTextBlock block = startBlock; block.isValid(); block = block.next()) {
         QTextCursor blockCursor(block);
@@ -1839,6 +2247,7 @@ void NoteCardWidget::clearEditorFormatting() {
     }
 
     cursor.endEditBlock();
+    m_editor->setTextCursor(cursor);
     updateFormattingToolbarState();
 }
 
@@ -2037,6 +2446,20 @@ bool NoteCardWidget::handleListAndChecklistEnter() {
     return false;
 }
 
+bool NoteCardWidget::handleSoftLineBreakInListContext() {
+    QTextCursor cursor = m_editor->textCursor();
+    const bool inChecklist = checklistStateForText(cursor.block().text()) != ChecklistState::None;
+    const bool inRichTextList = cursor.currentList() != nullptr;
+    if (!inChecklist && !inRichTextList) {
+        return false;
+    }
+
+    cursor.insertText(QString(QChar::LineSeparator));
+    m_editor->setTextCursor(cursor);
+    updateFormattingToolbarState();
+    return true;
+}
+
 bool NoteCardWidget::handleListAndChecklistBackspace() {
     QTextCursor cursor = m_editor->textCursor();
     if (cursor.hasSelection()) {
@@ -2083,6 +2506,9 @@ void NoteCardWidget::updateFormattingToolbarState() {
         m_italicButton,
         m_underlineButton,
         m_strikeButton,
+        m_fontFamilyButton,
+        m_fontSizeButton,
+        m_textColorButton,
         m_bulletListButton,
         m_numberedListButton,
         m_checkListButton,
@@ -2138,6 +2564,98 @@ void NoteCardWidget::updateFormattingToolbarState() {
     {
         const QSignalBlocker blocker(m_checkListButton);
         m_checkListButton->setChecked(checklistState != ChecklistState::None);
+    }
+
+    const QString editorDefaultFamily = m_editor->font().family();
+    const QStringList currentFamilies = currentFormat.fontFamilies().toStringList();
+    QString selectedFamily = currentFamilies.isEmpty()
+                                 ? QString()
+                                 : currentFamilies.value(0).trimmed();
+    if (selectedFamily.isEmpty()) {
+        selectedFamily = editorDefaultFamily;
+    }
+    if (m_fontFamilyMenu != nullptr) {
+        bool explicitFamilyMatched = false;
+        const QList<QAction *> familyActions = m_fontFamilyMenu->actions();
+        for (QAction *action : familyActions) {
+            if (action == nullptr) {
+                continue;
+            }
+            const QString actionFamily = action->data().toString().trimmed();
+            const bool isDefaultAction = actionFamily.isEmpty();
+            const bool shouldCheck = !isDefaultAction
+                                     && selectedFamily.compare(actionFamily, Qt::CaseInsensitive) == 0;
+            {
+                const QSignalBlocker blocker(action);
+                action->setChecked(shouldCheck);
+            }
+            if (shouldCheck) {
+                explicitFamilyMatched = true;
+            }
+        }
+        if (!explicitFamilyMatched) {
+            for (QAction *action : familyActions) {
+                if (action == nullptr || !action->data().toString().trimmed().isEmpty()) {
+                    continue;
+                }
+                const QSignalBlocker blocker(action);
+                action->setChecked(true);
+                break;
+            }
+        }
+    }
+
+    const qreal editorDefaultPointSize = m_editor->font().pointSizeF() > 0.0
+                                             ? m_editor->font().pointSizeF()
+                                             : 11.0;
+    const qreal selectedPointSize = currentFormat.fontPointSize() > 0.0
+                                        ? currentFormat.fontPointSize()
+                                        : editorDefaultPointSize;
+    if (m_fontSizeMenu != nullptr) {
+        QAction *closestAction = nullptr;
+        qreal closestDiff = std::numeric_limits<qreal>::max();
+        const QList<QAction *> sizeActions = m_fontSizeMenu->actions();
+        for (QAction *action : sizeActions) {
+            if (action == nullptr) {
+                continue;
+            }
+            const qreal actionSize = action->data().toDouble();
+            const qreal diff = qAbs(actionSize - selectedPointSize);
+            const bool shouldCheck = diff < 0.25;
+            {
+                const QSignalBlocker blocker(action);
+                action->setChecked(shouldCheck);
+            }
+            if (closestAction == nullptr || diff < closestDiff) {
+                closestAction = action;
+                closestDiff = diff;
+            }
+        }
+        if (closestAction != nullptr && closestDiff >= 0.25) {
+            const QSignalBlocker blocker(closestAction);
+            closestAction->setChecked(true);
+        }
+    }
+
+    if (m_fontFamilyButton != nullptr) {
+        const bool useDefaultFamily = selectedFamily.compare(editorDefaultFamily, Qt::CaseInsensitive) == 0;
+        m_fontFamilyButton->setText(useDefaultFamily ? QStringLiteral("字") : selectedFamily.left(1));
+        m_fontFamilyButton->setToolTip(useDefaultFamily
+                                           ? QStringLiteral("字体（默认）")
+                                           : QStringLiteral("字体：%1").arg(selectedFamily));
+    }
+
+    if (m_fontSizeButton != nullptr) {
+        m_fontSizeButton->setText(QStringLiteral("%1").arg(qRound(selectedPointSize)));
+        m_fontSizeButton->setToolTip(QStringLiteral("字号：%1 pt").arg(qRound(selectedPointSize)));
+    }
+
+    QColor currentColor = currentFormat.foreground().color();
+    if (!currentColor.isValid()) {
+        currentColor = ThemeHelper::paletteFor(m_uiStyle, m_hue, false).text;
+    }
+    if (m_textColorButton != nullptr) {
+        m_textColorButton->setToolTip(QStringLiteral("文字颜色：%1").arg(currentColor.name(QColor::HexRgb)));
     }
 
     if (m_alignLeftAction != nullptr) {
@@ -2211,25 +2729,86 @@ void NoteCardWidget::applyScale() {
 
     QFont displayFont = QApplication::font();
     displayFont.setPointSizeF(11.0 * m_uiScale * typographyScale);
-    if (m_uiStyle == UiStyle::Pixel) {
+    displayFont.setWeight(QFont::Normal);
+    displayFont.setLetterSpacing(QFont::PercentageSpacing, 100.0);
+    switch (m_uiStyle) {
+    case UiStyle::Pixel:
         displayFont.setFamily(QStringLiteral("Consolas"));
         displayFont.setStyleHint(QFont::TypeWriter);
         displayFont.setFixedPitch(true);
-    } else {
+        break;
+    case UiStyle::Paper:
+        displayFont.setFamily(QStringLiteral("Georgia"));
+        displayFont.setStyleHint(QFont::Serif);
+        displayFont.setFixedPitch(false);
+        displayFont.setWeight(QFont::Medium);
+        break;
+    case UiStyle::Clay:
+        displayFont.setFamily(QStringLiteral("Trebuchet MS"));
+        displayFont.setStyleHint(QFont::SansSerif);
+        displayFont.setFixedPitch(false);
+        displayFont.setWeight(QFont::Medium);
+        break;
+    case UiStyle::Meadow:
+        displayFont.setFamily(QStringLiteral("Calibri"));
+        displayFont.setStyleHint(QFont::SansSerif);
+        displayFont.setFixedPitch(false);
+        break;
+    case UiStyle::Graphite:
         displayFont.setFamily(QStringLiteral("Segoe UI"));
         displayFont.setStyleHint(QFont::SansSerif);
         displayFont.setFixedPitch(false);
+        displayFont.setWeight(QFont::DemiBold);
+        displayFont.setLetterSpacing(QFont::PercentageSpacing, 101.0);
+        break;
+    case UiStyle::Neon:
+        displayFont.setFamily(QStringLiteral("Bahnschrift"));
+        displayFont.setStyleHint(QFont::SansSerif);
+        displayFont.setFixedPitch(false);
+        displayFont.setWeight(QFont::DemiBold);
+        displayFont.setLetterSpacing(QFont::PercentageSpacing, 104.0);
+        break;
+    case UiStyle::Glass:
+    default:
+        displayFont.setFamily(QStringLiteral("Corbel"));
+        displayFont.setStyleHint(QFont::SansSerif);
+        displayFont.setFixedPitch(false);
+        break;
     }
     m_displayLabel->setFont(displayFont);
     m_editor->setFont(displayFont);
 
-    const int buttonWidth = qMax(24, static_cast<int>(32.0 * m_uiScale * spacingScale));
-    const int buttonHeight = qMax(20, static_cast<int>(26.0 * m_uiScale * spacingScale));
+    int buttonWidth = qMax(24, static_cast<int>(32.0 * m_uiScale * spacingScale));
+    int buttonHeight = qMax(20, static_cast<int>(26.0 * m_uiScale * spacingScale));
+    switch (m_uiStyle) {
+    case UiStyle::Pixel:
+    case UiStyle::Paper:
+        buttonWidth += 2;
+        break;
+    case UiStyle::Neon:
+        buttonWidth += 1;
+        buttonHeight += 1;
+        break;
+    case UiStyle::Clay:
+        buttonWidth += 2;
+        buttonHeight += 1;
+        break;
+    case UiStyle::Graphite:
+        buttonWidth += 1;
+        break;
+    case UiStyle::Meadow:
+    case UiStyle::Glass:
+    default:
+        break;
+    }
     const QToolButton *allButtons[] = {
         m_boldButton,
         m_italicButton,
         m_underlineButton,
         m_strikeButton,
+        m_fontFamilyButton,
+        m_fontSizeButton,
+        m_textColorButton,
         m_bulletListButton,
         m_numberedListButton,
         m_checkListButton,
@@ -2269,6 +2848,15 @@ void NoteCardWidget::applyScale() {
 
     QFont listFont = displayFont;
     listFont.setPointSizeF(10.0 * m_uiScale * typographyScale);
+    if (m_fontFamilyButton != nullptr) {
+        m_fontFamilyButton->setFont(listFont);
+    }
+    if (m_fontSizeButton != nullptr) {
+        m_fontSizeButton->setFont(listFont);
+    }
+    if (m_textColorButton != nullptr) {
+        m_textColorButton->setFont(listFont);
+    }
     m_bulletListButton->setFont(listFont);
     m_numberedListButton->setFont(listFont);
     if (m_checkListButton != nullptr) {

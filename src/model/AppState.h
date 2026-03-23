@@ -17,6 +17,7 @@ struct DailyTimelineSnapshot {
 
 struct AppState {
     QVector<NoteItem> notes;
+    QVector<QString> importedStickers;
     QPoint windowPosition;
     QSize windowSize;
     bool hasSavedWindowPosition = false;

@@ -127,7 +127,7 @@ int scrollBarWidthForScale(qreal scale) {
 }
 
 bool styleUsesWindowBackdrop(UiStyle uiStyle) {
-    return uiStyle == UiStyle::Glass || uiStyle == UiStyle::Mist || uiStyle == UiStyle::Sunrise;
+    return normalizedUiStyle(uiStyle) == UiStyle::Glass;
 }
 
 constexpr int kEdgeDropCaptureZonePx = 36;
@@ -159,8 +159,23 @@ QVector<NoteItem> MainWindow::notes() const {
 }
 
 void MainWindow::setNotes(const QVector<NoteItem> &notes) {
+    const int previousHeight = m_boardWidget != nullptr ? m_boardWidget->totalContentHeight() : 0;
+    const int previousWidth = m_boardWidget != nullptr ? m_boardWidget->requiredContentWidth() : 0;
+
     m_boardWidget->setNotes(notes);
-    updateWindowGeometry();
+
+    const int nextHeight = m_boardWidget != nullptr ? m_boardWidget->totalContentHeight() : 0;
+    const int nextWidth = m_boardWidget != nullptr ? m_boardWidget->requiredContentWidth() : 0;
+    if (previousHeight != nextHeight || previousWidth != nextWidth) {
+        updateWindowGeometry();
+    }
+}
+
+void MainWindow::setImportedStickers(const QVector<QString> &stickers) {
+    if (m_boardWidget == nullptr) {
+        return;
+    }
+    m_boardWidget->setImportedStickers(stickers);
 }
 
 void MainWindow::setUiScale(qreal scale) {
@@ -189,11 +204,12 @@ void MainWindow::setUiScale(qreal scale) {
 }
 
 void MainWindow::setUiStyle(UiStyle uiStyle) {
-    if (m_uiStyle == uiStyle) {
+    const UiStyle normalizedStyle = normalizedUiStyle(uiStyle);
+    if (m_uiStyle == normalizedStyle) {
         return;
     }
 
-    m_uiStyle = uiStyle;
+    m_uiStyle = normalizedStyle;
 
     if (m_scrollArea != nullptr) {
         const int scrollBarWidth = scrollBarWidthForScale(m_uiScale);
@@ -215,6 +231,7 @@ void MainWindow::setBaseLayerOpacity(qreal opacity) {
 
     m_baseLayerOpacity = clamped;
     m_boardWidget->setBaseLayerOpacity(clamped);
+    updateEdgeFadeWidgets();
     update();
 }
 
@@ -549,9 +566,10 @@ void MainWindow::paintEvent(QPaintEvent *event) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
+    const UiStyle uiStyle = normalizedUiStyle(m_uiStyle);
     const QRectF frameRect = rect().adjusted(1.0, 1.0, -1.0, -1.0);
     qreal radiusBase = 26.0;
-    switch (m_uiStyle) {
+    switch (uiStyle) {
     case UiStyle::Pixel:
         radiusBase = 3.0;
         break;
@@ -559,11 +577,9 @@ void MainWindow::paintEvent(QPaintEvent *event) {
     case UiStyle::Neon:
         radiusBase = 16.0;
         break;
-    case UiStyle::Mist:
     case UiStyle::Meadow:
         radiusBase = 20.0;
         break;
-    case UiStyle::Sunrise:
     case UiStyle::Paper:
     case UiStyle::Clay:
         radiusBase = 22.0;
@@ -580,7 +596,7 @@ void MainWindow::paintEvent(QPaintEvent *event) {
     const auto scaledAlpha = [alphaScale](int alpha) {
         return qBound(0, static_cast<int>(alpha * alphaScale), 255);
     };
-    const WindowPalette windowPalette = ThemeHelper::windowPalette(m_uiStyle);
+    const WindowPalette windowPalette = ThemeHelper::windowPalette(uiStyle);
 
     QLinearGradient fill(frameRect.topLeft(), frameRect.bottomLeft());
     fill.setColorAt(0.0, QColor(windowPalette.fillTop.red(), windowPalette.fillTop.green(), windowPalette.fillTop.blue(), scaledAlpha(windowPalette.fillTop.alpha())));
@@ -596,7 +612,7 @@ void MainWindow::paintEvent(QPaintEvent *event) {
     painter.save();
     painter.setClipPath(clipPath);
 
-    switch (m_uiStyle) {
+    switch (uiStyle) {
     case UiStyle::Glass: {
         QLinearGradient sheen(frameRect.topLeft(), frameRect.bottomLeft());
         sheen.setColorAt(0.0, QColor(238, 248, 255, scaledAlpha(26)));
@@ -609,64 +625,23 @@ void MainWindow::paintEvent(QPaintEvent *event) {
         sideGlow.setColorAt(0.5, QColor(224, 240, 255, 0));
         sideGlow.setColorAt(1.0, QColor(180, 210, 238, scaledAlpha(10)));
         painter.fillPath(clipPath, sideGlow);
-        break;
-    }
-    case UiStyle::Mist: {
-        QLinearGradient frost(frameRect.topLeft(), frameRect.bottomLeft());
-        frost.setColorAt(0.0, QColor(190, 214, 238, scaledAlpha(26)));
-        frost.setColorAt(0.35, QColor(146, 178, 208, scaledAlpha(14)));
-        frost.setColorAt(1.0, QColor(92, 126, 162, scaledAlpha(8)));
-        painter.fillPath(clipPath, frost);
 
-        QLinearGradient veil(frameRect.topLeft(), frameRect.bottomLeft());
-        veil.setColorAt(0.0, QColor(255, 255, 255, scaledAlpha(8)));
-        veil.setColorAt(0.5, QColor(255, 255, 255, 0));
-        veil.setColorAt(1.0, QColor(4, 8, 14, scaledAlpha(34)));
-        painter.fillPath(clipPath, veil);
+        const QRectF sweepRect = frameRect.adjusted(frameRect.width() * 0.08,
+                                                    frameRect.height() * 0.03,
+                                                    -frameRect.width() * 0.08,
+                                                    -frameRect.height() * 0.62);
+        QLinearGradient sweep(sweepRect.topLeft(), sweepRect.bottomLeft());
+        sweep.setColorAt(0.0, QColor(248, 254, 255, scaledAlpha(42)));
+        sweep.setColorAt(1.0, QColor(248, 254, 255, 0));
+        QPainterPath sweepPath;
+        sweepPath.addRoundedRect(sweepRect, qMax<qreal>(1.0, radius - (5.0 * m_uiScale)), qMax<qreal>(1.0, radius - (5.0 * m_uiScale)));
+        painter.fillPath(sweepPath, sweep);
 
-        painter.setPen(QPen(QColor(170, 196, 222, scaledAlpha(14)), 1.0));
-        const int noiseStep = qMax(4, static_cast<int>(5.0 * m_uiScale));
-        for (int y = static_cast<int>(frameRect.top()) + 3; y < static_cast<int>(frameRect.bottom()) - 2; y += noiseStep) {
-            for (int x = static_cast<int>(frameRect.left()) + 3; x < static_cast<int>(frameRect.right()) - 2; x += noiseStep) {
-                const int hash = ((x * 31) ^ (y * 17)) & 63;
-                if (hash <= 1) {
-                    painter.drawPoint(x, y);
-                }
-            }
-        }
-        break;
-    }
-    case UiStyle::Sunrise: {
-        QLinearGradient sky(frameRect.topLeft(), frameRect.bottomLeft());
-        sky.setColorAt(0.0, QColor(98, 76, 130, scaledAlpha(42)));
-        sky.setColorAt(0.46, QColor(212, 126, 144, scaledAlpha(28)));
-        sky.setColorAt(1.0, QColor(252, 164, 112, scaledAlpha(18)));
-        painter.fillPath(clipPath, sky);
-
-        QRadialGradient sun(frameRect.center().x(),
-                            frameRect.bottom() - (frameRect.height() * 0.08),
-                            frameRect.width() * 0.9);
-        sun.setColorAt(0.0, QColor(255, 228, 166, scaledAlpha(60)));
-        sun.setColorAt(0.4, QColor(255, 180, 120, scaledAlpha(22)));
-        sun.setColorAt(1.0, QColor(255, 146, 96, 0));
-        painter.fillPath(clipPath, sun);
-
-        QLinearGradient glaze(frameRect.topLeft(), frameRect.bottomLeft());
-        glaze.setColorAt(0.0, QColor(255, 255, 255, scaledAlpha(10)));
-        glaze.setColorAt(0.6, QColor(255, 240, 220, scaledAlpha(6)));
-        glaze.setColorAt(1.0, QColor(60, 34, 28, scaledAlpha(20)));
-        painter.fillPath(clipPath, glaze);
-
-        painter.setPen(QPen(QColor(255, 224, 198, scaledAlpha(12)), 1.0));
-        const int noiseStep = qMax(4, static_cast<int>(5.0 * m_uiScale));
-        for (int y = static_cast<int>(frameRect.top()) + 2; y < static_cast<int>(frameRect.bottom()) - 2; y += noiseStep) {
-            for (int x = static_cast<int>(frameRect.left()) + 2; x < static_cast<int>(frameRect.right()) - 2; x += noiseStep) {
-                const int hash = ((x * 17) ^ (y * 29)) & 63;
-                if (hash <= 1) {
-                    painter.drawPoint(x, y);
-                }
-            }
-        }
+        painter.setPen(QPen(QColor(232, 246, 255, scaledAlpha(32)), 1.0));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(frameRect.adjusted(1.0, 1.0, -1.0, -1.0),
+                                qMax<qreal>(1.0, radius - (1.4 * m_uiScale)),
+                                qMax<qreal>(1.0, radius - (1.4 * m_uiScale)));
         break;
     }
     case UiStyle::Meadow: {
@@ -682,6 +657,12 @@ void MainWindow::paintEvent(QPaintEvent *event) {
         depth.setColorAt(0.0, QColor(234, 248, 236, scaledAlpha(8)));
         depth.setColorAt(1.0, QColor(20, 62, 40, scaledAlpha(20)));
         painter.fillPath(clipPath, depth);
+
+        QLinearGradient sunlight(frameRect.topLeft(), frameRect.bottomRight());
+        sunlight.setColorAt(0.0, QColor(244, 255, 226, scaledAlpha(16)));
+        sunlight.setColorAt(0.5, QColor(168, 220, 164, scaledAlpha(6)));
+        sunlight.setColorAt(1.0, QColor(12, 34, 18, 0));
+        painter.fillPath(clipPath, sunlight);
         break;
     }
     case UiStyle::Graphite: {
@@ -699,6 +680,23 @@ void MainWindow::paintEvent(QPaintEvent *event) {
                              static_cast<int>(frameRect.right()) - 2,
                              y);
         }
+
+        painter.setPen(QPen(QColor(134, 152, 176, scaledAlpha(7)), 1.0));
+        const int columnStep = qMax(8, static_cast<int>(11.0 * m_uiScale));
+        for (int x = static_cast<int>(frameRect.left()) + columnStep; x < static_cast<int>(frameRect.right()) - 2; x += columnStep) {
+            if (((x / columnStep) & 1) == 0) {
+                painter.drawLine(x,
+                                 static_cast<int>(frameRect.top()) + 2,
+                                 x,
+                                 static_cast<int>(frameRect.bottom()) - 2);
+            }
+        }
+
+        painter.setPen(QPen(QColor(210, 220, 236, scaledAlpha(24)), 1.0));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(frameRect.adjusted(1.0, 1.0, -1.0, -1.0),
+                                qMax<qreal>(1.0, radius - (1.8 * m_uiScale)),
+                                qMax<qreal>(1.0, radius - (1.8 * m_uiScale)));
         break;
     }
     case UiStyle::Paper: {
@@ -716,6 +714,24 @@ void MainWindow::paintEvent(QPaintEvent *event) {
                              static_cast<int>(frameRect.right()) - 6,
                              y);
         }
+
+        const QRectF headerBand = frameRect.adjusted(frameRect.width() * 0.05,
+                                                     frameRect.height() * 0.03,
+                                                     -frameRect.width() * 0.05,
+                                                     -frameRect.height() * 0.76);
+        QLinearGradient headerLight(headerBand.topLeft(), headerBand.bottomLeft());
+        headerLight.setColorAt(0.0, QColor(255, 254, 246, scaledAlpha(28)));
+        headerLight.setColorAt(1.0, QColor(255, 254, 246, 0));
+        QPainterPath headerPath;
+        headerPath.addRoundedRect(headerBand,
+                                  qMax<qreal>(1.0, radius - (6.0 * m_uiScale)),
+                                  qMax<qreal>(1.0, radius - (6.0 * m_uiScale)));
+        painter.fillPath(headerPath, headerLight);
+
+        painter.setPen(QPen(QColor(150, 120, 88, scaledAlpha(26)), 1.0, Qt::DotLine));
+        painter.drawRoundedRect(frameRect.adjusted(2.0, 2.0, -2.0, -2.0),
+                                qMax<qreal>(1.0, radius - (2.5 * m_uiScale)),
+                                qMax<qreal>(1.0, radius - (2.5 * m_uiScale)));
         break;
     }
     case UiStyle::Pixel: {
@@ -765,6 +781,22 @@ void MainWindow::paintEvent(QPaintEvent *event) {
         edge.setColorAt(0.0, QColor(255, 184, 255, scaledAlpha(22)));
         edge.setColorAt(1.0, QColor(0, 255, 240, scaledAlpha(12)));
         painter.fillPath(clipPath, edge);
+
+        QLinearGradient beam(frameRect.topRight(), frameRect.bottomLeft());
+        beam.setColorAt(0.0, QColor(255, 208, 255, scaledAlpha(16)));
+        beam.setColorAt(0.38, QColor(160, 255, 244, scaledAlpha(10)));
+        beam.setColorAt(1.0, QColor(0, 0, 0, 0));
+        painter.fillPath(clipPath, beam);
+
+        painter.setPen(QPen(QColor(158, 255, 244, scaledAlpha(58)), 1.2));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(frameRect.adjusted(1.2, 1.2, -1.2, -1.2),
+                                qMax<qreal>(1.0, radius - (1.6 * m_uiScale)),
+                                qMax<qreal>(1.0, radius - (1.6 * m_uiScale)));
+        painter.setPen(QPen(QColor(255, 166, 255, scaledAlpha(30)), 1.0));
+        painter.drawRoundedRect(frameRect.adjusted(2.8, 2.8, -2.8, -2.8),
+                                qMax<qreal>(1.0, radius - (3.2 * m_uiScale)),
+                                qMax<qreal>(1.0, radius - (3.2 * m_uiScale)));
         break;
     }
     case UiStyle::Clay: {
@@ -780,6 +812,18 @@ void MainWindow::paintEvent(QPaintEvent *event) {
         soft.setColorAt(0.0, QColor(255, 228, 196, scaledAlpha(18)));
         soft.setColorAt(1.0, QColor(188, 120, 82, 0));
         painter.fillPath(clipPath, soft);
+
+        QLinearGradient emboss(frameRect.topLeft(), frameRect.bottomLeft());
+        emboss.setColorAt(0.0, QColor(255, 244, 228, scaledAlpha(22)));
+        emboss.setColorAt(0.5, QColor(255, 244, 228, 0));
+        emboss.setColorAt(1.0, QColor(86, 50, 30, scaledAlpha(18)));
+        painter.fillPath(clipPath, emboss);
+
+        painter.setPen(QPen(QColor(255, 246, 232, scaledAlpha(28)), 1.0));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(frameRect.adjusted(1.0, 1.0, -1.0, -1.0),
+                                qMax<qreal>(1.0, radius - (1.6 * m_uiScale)),
+                                qMax<qreal>(1.0, radius - (1.6 * m_uiScale)));
         break;
     }
     }
@@ -1061,8 +1105,11 @@ void MainWindow::updateEdgeFadeWidgets() {
                                             1.0)
                                    : 0.0;
     const qreal maxFadeOpacity = 0.62;
-    const qreal topOpacity = topFactor * maxFadeOpacity;
-    const qreal bottomOpacity = bottomFactor * maxFadeOpacity;
+    const qreal opacityScale = qBound(constants::kMinBaseLayerOpacity,
+                                      m_baseLayerOpacity,
+                                      constants::kMaxBaseLayerOpacity);
+    const qreal topOpacity = topFactor * maxFadeOpacity * opacityScale;
+    const qreal bottomOpacity = bottomFactor * maxFadeOpacity * opacityScale;
 
     auto *topFade = static_cast<EdgeFadeWidget *>(m_topFade);
     auto *bottomFade = static_cast<EdgeFadeWidget *>(m_bottomFade);

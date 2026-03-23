@@ -47,21 +47,12 @@ qreal contentFontScaleForUiScale(qreal scale) {
     return 1.0;
 }
 
-bool shouldAnimateReposition(qreal uiScale, int cardCount, const QPoint &from, const QPoint &to) {
-    if (cardCount > 14) {
-        return false;
-    }
-
-    const int distance = (from - to).manhattanLength();
-    const int minDistance = qMax(4, static_cast<int>(6.0 * uiScale));
-    const int maxDistance = static_cast<int>(220.0 * uiScale);
-    return distance >= minDistance && distance <= maxDistance;
-}
-
 void applyLaneHeaderStyle(QLabel *header, UiStyle uiStyle, qreal uiScale) {
     if (header == nullptr) {
         return;
     }
+
+    uiStyle = normalizedUiStyle(uiStyle);
 
     QFont headerFont = QApplication::font();
     headerFont.setBold(true);
@@ -84,14 +75,6 @@ void applyLaneHeaderStyle(QLabel *header, UiStyle uiStyle, qreal uiScale) {
             "padding: 4px 2px 2px 2px;"
             "font-family: 'Consolas', 'Courier New', monospace;"
             "letter-spacing: 1px;"
-            "}"));
-        return;
-    } else if (uiStyle == UiStyle::Sunrise) {
-        header->setStyleSheet(QStringLiteral(
-            "QLabel {"
-            "color: rgba(98, 66, 44, 224);"
-            "padding: 4px 2px 2px 2px;"
-            "font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
             "}"));
         return;
     } else if (uiStyle == UiStyle::Paper || uiStyle == UiStyle::Clay) {
@@ -369,6 +352,13 @@ void NotesBoardWidget::setNotes(const QVector<NoteItem> &notes) {
     rebuildCards(notes);
 }
 
+void NotesBoardWidget::setImportedStickers(const QVector<QString> &stickers) {
+    m_importedStickerLibrary = stickers;
+    for (NoteCardWidget *card : std::as_const(m_cards)) {
+        card->setImportedStickerLibrary(m_importedStickerLibrary);
+    }
+}
+
 void NotesBoardWidget::focusNoteEditor(const QString &noteId) {
     for (NoteCardWidget *card : std::as_const(m_cards)) {
         if (card->noteId() == noteId) {
@@ -409,13 +399,14 @@ void NotesBoardWidget::setBaseLayerOpacity(qreal opacity) {
 }
 
 void NotesBoardWidget::setUiStyle(UiStyle uiStyle) {
-    if (m_uiStyle == uiStyle) {
+    const UiStyle normalizedStyle = normalizedUiStyle(uiStyle);
+    if (m_uiStyle == normalizedStyle) {
         return;
     }
 
-    m_uiStyle = uiStyle;
+    m_uiStyle = normalizedStyle;
     for (NoteCardWidget *card : std::as_const(m_cards)) {
-        card->setUiStyle(uiStyle);
+        card->setUiStyle(normalizedStyle);
     }
     for (QWidget *laneHeader : std::as_const(m_laneHeaders)) {
         auto *label = qobject_cast<QLabel *>(laneHeader);
@@ -1094,8 +1085,8 @@ void NotesBoardWidget::clearDragProxy() {
     m_dragProxyScale = 1.0;
 }
 
-bool NotesBoardWidget::rebuildCardsFastForDragPreview(const QVector<NoteItem> &notes) {
-    if (!m_noteDragInProgress || notes.size() != m_cards.size()) {
+bool NotesBoardWidget::rebuildCardsFastIfPossible(const QVector<NoteItem> &notes) {
+    if (notes.size() != m_cards.size()) {
         return false;
     }
 
@@ -1170,6 +1161,20 @@ bool NotesBoardWidget::rebuildCardsFastForDragPreview(const QVector<NoteItem> &n
             return false;
         }
 
+        card->setText(item.text);
+        card->setHue(item.hue);
+        card->setSticker(item.sticker);
+        card->setImportedStickerLibrary(m_importedStickerLibrary);
+        card->setUiScale(m_uiScale);
+        card->setBaseLayerOpacity(m_baseLayerOpacity);
+        card->setUiStyle(m_uiStyle);
+        card->setExternalFileSyncEnabled(m_externalFileSyncEnabled);
+        card->setAlwaysOnTopEnabled(m_alwaysOnTopEnabled);
+        card->setLaunchAtStartupEnabled(m_launchAtStartupEnabled);
+        card->setAutoCheckUpdatesEnabled(m_autoCheckUpdatesEnabled);
+        card->setWindowLocked(m_windowLocked);
+        card->setReminderEpochMsec(item.reminderEpochMsec);
+
         if (normalizedNoteLane(card->lane()) != itemLane) {
             card->setLane(itemLane);
         }
@@ -1204,17 +1209,14 @@ bool NotesBoardWidget::rebuildCardsFastForDragPreview(const QVector<NoteItem> &n
 }
 
 void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
-    if (rebuildCardsFastForDragPreview(notes)) {
+    if (rebuildCardsFastIfPossible(notes)) {
         return;
     }
 
     QHash<QString, NoteCardWidget *> existingCards;
-    QHash<QString, QPoint> previousPositions;
     existingCards.reserve(m_cards.size());
-    previousPositions.reserve(m_cards.size());
     for (NoteCardWidget *card : std::as_const(m_cards)) {
         existingCards.insert(card->noteId(), card);
-        previousPositions.insert(card->noteId(), card->pos());
         m_layout->removeWidget(card);
     }
 
@@ -1232,7 +1234,6 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
 
     QVector<NoteCardWidget *> orderedCards;
     orderedCards.reserve(orderedNotes.size());
-    QSet<QString> newCardIds;
     QVector<NoteCardWidget *> cardsPendingEntranceAnimation;
     cardsPendingEntranceAnimation.reserve(orderedNotes.size());
 
@@ -1253,7 +1254,6 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
         NoteCardWidget *card = existingCards.take(item.id);
         const bool isNewCard = (card == nullptr);
         if (isNewCard) {
-            newCardIds.insert(item.id);
             card = new NoteCardWidget(this);
             connect(card, &NoteCardWidget::textCommitted, this, &NotesBoardWidget::noteTextCommitted);
             connect(card, &NoteCardWidget::layoutRefreshRequested, this, &NotesBoardWidget::layoutRefreshRequested);
@@ -1299,6 +1299,7 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
         card->setText(item.text);
         card->setHue(item.hue);
         card->setSticker(item.sticker);
+        card->setImportedStickerLibrary(m_importedStickerLibrary);
         card->setLane(itemLane);
         card->setUiScale(m_uiScale);
         card->setBaseLayerOpacity(m_baseLayerOpacity);
@@ -1342,23 +1343,6 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
     if (isVisible() && !m_noteDragInProgress) {
         for (NoteCardWidget *card : std::as_const(cardsPendingEntranceAnimation)) {
             AnimationCoordinator::animateCardEntrance(card);
-        }
-    }
-
-    const bool animateRepositionForPass = isVisible() && !m_deleteAnimationRunning && !m_noteDragInProgress;
-    if (!animateRepositionForPass) {
-        return;
-    }
-
-    for (NoteCardWidget *card : std::as_const(m_cards)) {
-        if (card == nullptr || newCardIds.contains(card->noteId())) {
-            continue;
-        }
-
-        const QPoint from = previousPositions.value(card->noteId(), card->pos());
-        const QPoint to = card->pos();
-        if (shouldAnimateReposition(m_uiScale, m_cards.size(), from, to)) {
-            AnimationCoordinator::animateCardReposition(card, from, to);
         }
     }
 }

@@ -6,12 +6,14 @@
 #include <QResizeEvent>
 #include <QTextCharFormat>
 #include <QTextListFormat>
+#include <QVector>
 #include <QWidget>
 
 #include "model/NoteItem.h"
 #include "model/UiStyle.h"
 
 class QLabel;
+class QColor;
 class QKeyEvent;
 class QLineEdit;
 class QPropertyAnimation;
@@ -45,6 +47,7 @@ public:
     void setText(const QString &text);
     void setHue(int hue);
     void setSticker(const QString &sticker);
+    void setImportedStickerLibrary(const QVector<QString> &stickers);
     void setLane(NoteLane lane);
     void setUiScale(qreal scale);
     void setBaseLayerOpacity(qreal opacity);
@@ -115,6 +118,10 @@ private:
     void finishEditing();
     void syncEditorHeight();
     void mergeEditorCharFormat(const QTextCharFormat &format);
+    QTextCharFormat defaultEditorCharFormat() const;
+    void applyEditorFontFamily(const QString &family);
+    void applyEditorFontPointSize(qreal pointSize);
+    void applyEditorTextColor(const QColor &color);
     void toggleListStyle(QTextListFormat::Style style);
     void toggleChecklistItems();
     void clearEditorFormatting();
@@ -125,6 +132,7 @@ private:
     bool handleEditorShortcut(QKeyEvent *event);
     bool handleListAndChecklistEnter();
     bool handleListAndChecklistBackspace();
+    bool handleSoftLineBreakInListContext();
     void updateFormattingToolbarState();
     void animateDropHoverTo(qreal target);
 
@@ -137,6 +145,11 @@ private:
     QToolButton *m_italicButton = nullptr;
     QToolButton *m_underlineButton = nullptr;
     QToolButton *m_strikeButton = nullptr;
+    QToolButton *m_fontFamilyButton = nullptr;
+    QMenu *m_fontFamilyMenu = nullptr;
+    QToolButton *m_fontSizeButton = nullptr;
+    QMenu *m_fontSizeMenu = nullptr;
+    QToolButton *m_textColorButton = nullptr;
     QToolButton *m_bulletListButton = nullptr;
     QToolButton *m_numberedListButton = nullptr;
     QToolButton *m_checkListButton = nullptr;
@@ -153,6 +166,7 @@ private:
     QToolButton *m_searchNextButton = nullptr;
     int m_hue = -1;
     QString m_sticker;
+    QVector<QString> m_importedStickerLibrary;
     NoteLane m_lane = NoteLane::Today;
     qreal m_uiScale = 1.0;
     qreal m_baseLayerOpacity = 1.0;

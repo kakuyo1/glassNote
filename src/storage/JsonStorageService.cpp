@@ -11,6 +11,7 @@
 #include <QJsonParseError>
 #include <QLoggingCategory>
 #include <QSaveFile>
+#include <QSet>
 #include <QStandardPaths>
 #include <QUuid>
 
@@ -23,8 +24,9 @@ namespace {
 
 Q_LOGGING_CATEGORY(lcStorage, "glassnote.storage")
 
-constexpr int kStorageVersion = 3;
+constexpr int kStorageVersion = 4;
 const auto kLatestBackupFileName = QStringLiteral("latest.json");
+const auto kImportedImageStickerPrefix = QStringLiteral("__image_sticker__:");
 
 QString noteLaneToStorageValue(NoteLane lane) {
     switch (normalizedNoteLane(lane)) {
@@ -68,13 +70,9 @@ NoteLane noteLaneFromStorageValue(const QJsonValue &value) {
 }
 
 QString uiStyleToStorageValue(UiStyle uiStyle) {
-    switch (uiStyle) {
+    switch (normalizedUiStyle(uiStyle)) {
     case UiStyle::Glass:
         return QStringLiteral("glass");
-    case UiStyle::Mist:
-        return QStringLiteral("mist");
-    case UiStyle::Sunrise:
-        return QStringLiteral("sunrise");
     case UiStyle::Meadow:
         return QStringLiteral("meadow");
     case UiStyle::Graphite:
@@ -95,10 +93,10 @@ UiStyle uiStyleFromStorageValue(const QJsonValue &value) {
     if (value.isString()) {
         const QString style = value.toString().trimmed().toLower();
         if (style == QStringLiteral("mist")) {
-            return UiStyle::Mist;
+            return UiStyle::Glass;
         }
         if (style == QStringLiteral("sunrise")) {
-            return UiStyle::Sunrise;
+            return UiStyle::Clay;
         }
         if (style == QStringLiteral("meadow")) {
             return UiStyle::Meadow;
@@ -124,9 +122,9 @@ UiStyle uiStyleFromStorageValue(const QJsonValue &value) {
     const int numeric = value.toInt(0);
     switch (numeric) {
     case static_cast<int>(UiStyle::Mist):
-        return UiStyle::Mist;
+        return UiStyle::Glass;
     case static_cast<int>(UiStyle::Sunrise):
-        return UiStyle::Sunrise;
+        return UiStyle::Clay;
     case static_cast<int>(UiStyle::Meadow):
         return UiStyle::Meadow;
     case static_cast<int>(UiStyle::Graphite):
@@ -142,6 +140,59 @@ UiStyle uiStyleFromStorageValue(const QJsonValue &value) {
     default:
         return UiStyle::Glass;
     }
+}
+
+bool isImportedImageStickerValue(const QString &value) {
+    return value.trimmed().startsWith(kImportedImageStickerPrefix);
+}
+
+QString importedImageStickerPath(const QString &value) {
+    if (!isImportedImageStickerValue(value)) {
+        return QString();
+    }
+    return value.trimmed().mid(kImportedImageStickerPrefix.size()).trimmed();
+}
+
+QString encodeImportedImageStickerPath(const QString &path) {
+    return kImportedImageStickerPrefix + QDir::toNativeSeparators(path.trimmed());
+}
+
+QString normalizeImportedStickerEntry(const QString &value) {
+    const QString trimmed = value.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+
+    const QString path = isImportedImageStickerValue(trimmed) ? importedImageStickerPath(trimmed) : trimmed;
+    if (path.isEmpty()) {
+        return QString();
+    }
+
+    return encodeImportedImageStickerPath(path);
+}
+
+QVector<QString> normalizeImportedStickers(const QVector<QString> &stickers) {
+    QVector<QString> normalized;
+    normalized.reserve(stickers.size());
+    QSet<QString> dedupe;
+    dedupe.reserve(stickers.size());
+
+    for (const QString &entry : stickers) {
+        const QString candidate = normalizeImportedStickerEntry(entry);
+        if (candidate.isEmpty()) {
+            continue;
+        }
+
+        const QString key = candidate.toCaseFolded();
+        if (dedupe.contains(key)) {
+            continue;
+        }
+
+        dedupe.insert(key);
+        normalized.append(candidate);
+    }
+
+    return normalized;
 }
 
 QJsonObject noteToJson(const NoteItem &note) {
@@ -273,6 +324,13 @@ QJsonObject stateToJson(const AppState &state) {
     }
     root.insert(QStringLiteral("notes"), notesArray);
 
+    QJsonArray importedStickersArray;
+    const QVector<QString> normalizedImportedStickers = normalizeImportedStickers(state.importedStickers);
+    for (const QString &sticker : normalizedImportedStickers) {
+        importedStickersArray.append(sticker);
+    }
+    root.insert(QStringLiteral("importedStickers"), importedStickersArray);
+
     QJsonArray timelineArray;
     for (const DailyTimelineSnapshot &snapshot : state.timelineSnapshots) {
         if (snapshot.dateKey.isEmpty() || snapshot.notes.isEmpty()) {
@@ -332,6 +390,27 @@ AppState stateFromJson(const QJsonObject &root) {
         }
         state.notes.append(noteFromJson(value.toObject(), static_cast<int>(index)));
     }
+
+    QVector<QString> importedStickers;
+    if (root.contains(QStringLiteral("importedStickers"))) {
+        const QJsonArray importedStickersArray = root.value(QStringLiteral("importedStickers")).toArray();
+        importedStickers.reserve(importedStickersArray.size());
+        for (const QJsonValue &value : importedStickersArray) {
+            if (!value.isString()) {
+                continue;
+            }
+            importedStickers.append(value.toString());
+        }
+    } else {
+        importedStickers.reserve(state.notes.size());
+        for (const NoteItem &note : std::as_const(state.notes)) {
+            if (!isImportedImageStickerValue(note.sticker)) {
+                continue;
+            }
+            importedStickers.append(note.sticker);
+        }
+    }
+    state.importedStickers = normalizeImportedStickers(importedStickers);
 
     const QJsonArray timelineArray = root.value(QStringLiteral("timelineSnapshots")).toArray();
     state.timelineSnapshots.reserve(timelineArray.size());

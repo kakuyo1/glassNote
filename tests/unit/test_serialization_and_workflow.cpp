@@ -29,6 +29,9 @@ AppState makeState(int noteCount) {
     state.windowSize = QSize(512, 420);
     state.hasSavedWindowPosition = true;
     state.hasSavedWindowSize = true;
+    state.importedStickers = {
+        QStringLiteral("__image_sticker__:%1").arg(QDir::toNativeSeparators(QStringLiteral("C:/stickers/cat.png"))),
+        QStringLiteral("__image_sticker__:%1").arg(QDir::toNativeSeparators(QStringLiteral("D:/media/dog.jpg")))};
 
     state.notes.reserve(noteCount);
     for (int index = 0; index < noteCount; ++index) {
@@ -55,6 +58,7 @@ private slots:
     void serialization_roundTripPersistsFields();
     void serialization_roundTripPersistsTimelineSnapshots();
     void serialization_acceptsLegacyNumericUiStyle();
+    void serialization_legacyBackfillsImportedStickers();
     void workflow_syncNoteOrderReindexes();
     void workflow_syncNoteOrderReindexesPerLane();
     void workflow_ensureAtLeastOneNoteCreatesDefault();
@@ -93,6 +97,11 @@ void GlassNoteUnitTests::serialization_roundTripPersistsFields() {
     QCOMPARE(loaded.notes.at(0).hue, 0);
     QCOMPARE(loaded.notes.at(0).sticker, QStringLiteral("⭐"));
     QCOMPARE(loaded.notes.at(0).reminderEpochMsec, 1700000000000LL);
+    QCOMPARE(loaded.importedStickers.size(), 2);
+    QCOMPARE(loaded.importedStickers.at(0),
+             QStringLiteral("__image_sticker__:%1").arg(QDir::toNativeSeparators(QStringLiteral("C:/stickers/cat.png"))));
+    QCOMPARE(loaded.importedStickers.at(1),
+             QStringLiteral("__image_sticker__:%1").arg(QDir::toNativeSeparators(QStringLiteral("D:/media/dog.jpg"))));
 }
 
 void GlassNoteUnitTests::serialization_roundTripPersistsTimelineSnapshots() {
@@ -154,6 +163,33 @@ void GlassNoteUnitTests::serialization_acceptsLegacyNumericUiStyle() {
     QCOMPARE(loaded.lastUpdateCheckEpochMsec, 0);
     QCOMPARE(loaded.notes.at(0).lane, NoteLane::Today);
     QCOMPARE(loaded.notes.at(0).sticker, QString());
+    QVERIFY(loaded.importedStickers.isEmpty());
+}
+
+void GlassNoteUnitTests::serialization_legacyBackfillsImportedStickers() {
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString filePath = QDir(tempDir.path()).filePath(QStringLiteral("legacy-stickers.json"));
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(R"({
+  "version": 2,
+  "notes": [
+    { "id": "n1", "text": "legacy", "order": 0, "sticker": "__image_sticker__:C:/legacy/a.png" },
+    { "id": "n2", "text": "legacy-2", "order": 1, "sticker": "__image_sticker__:c:/legacy/A.png" },
+    { "id": "n3", "text": "legacy-3", "order": 2, "sticker": "⭐" }
+  ]
+})");
+    file.close();
+
+    JsonStorageService service;
+    AppState loaded;
+    QString errorMessage;
+    QVERIFY2(service.importState(filePath, &loaded, &errorMessage), qPrintable(errorMessage));
+    QCOMPARE(loaded.importedStickers.size(), 1);
+    QCOMPARE(loaded.importedStickers.constFirst(),
+             QStringLiteral("__image_sticker__:%1").arg(QDir::toNativeSeparators(QStringLiteral("C:/legacy/a.png"))));
 }
 
 void GlassNoteUnitTests::workflow_syncNoteOrderReindexes() {
