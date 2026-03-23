@@ -27,6 +27,7 @@ namespace glassnote {
 class NoteCardWidget final : public QWidget {
     Q_OBJECT
     Q_PROPERTY(qreal hoverProgress READ hoverProgress WRITE setHoverProgress)
+    Q_PROPERTY(qreal dropHoverProgress READ dropHoverProgress WRITE setDropHoverProgress)
 
 public:
     explicit NoteCardWidget(QWidget *parent = nullptr);
@@ -55,9 +56,12 @@ public:
     void setReminderEpochMsec(qint64 reminderEpochMsec);
     void setUiStyle(UiStyle uiStyle);
     void setNoteDragActive(bool active);
+    void setDropHoverActive(bool active);
     void startEditing();
     qreal hoverProgress() const;
     void setHoverProgress(qreal progress);
+    qreal dropHoverProgress() const;
+    void setDropHoverProgress(qreal progress);
 
 signals:
     void textCommitted(const QString &noteId, const QString &text);
@@ -122,6 +126,7 @@ private:
     bool handleListAndChecklistEnter();
     bool handleListAndChecklistBackspace();
     void updateFormattingToolbarState();
+    void animateDropHoverTo(qreal target);
 
     QString m_noteId;
     QLabel *m_displayLabel = nullptr;
@@ -152,10 +157,13 @@ private:
     qreal m_uiScale = 1.0;
     qreal m_baseLayerOpacity = 1.0;
     qreal m_hoverProgress = 0.0;
+    qreal m_dropHoverProgress = 0.0;
     QPropertyAnimation *m_hoverAnimation = nullptr;
+    QPropertyAnimation *m_dropHoverAnimation = nullptr;
     QTimer *m_dragHoldTimer = nullptr;
     bool m_draggingWindow = false;
     bool m_noteDragActive = false;
+    bool m_dropHoverActive = false;
     bool m_pressActivated = false;
     bool m_externalFileSyncEnabled = true;
     bool m_alwaysOnTopEnabled = false;

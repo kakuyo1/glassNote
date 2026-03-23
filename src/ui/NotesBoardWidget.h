@@ -80,18 +80,24 @@ protected:
 
 private:
     void handleCardDragHoldStarted(const QString &noteId, const QPoint &globalPos);
+    void scheduleDragPreviewUpdate(const QPoint &globalPos);
     void updateCardDragPreview(const QPoint &globalPos);
     void finishCardDrag(const QPoint &globalPos, bool canceled);
     void updateDragAutoScroll(const QPoint &globalPos);
     void stopDragAutoScroll();
     NoteLane laneForDragLocalY(int localY) const;
     int insertionOrderForLane(NoteLane lane, int localY) const;
+    int stabilizedInsertionOrderForLane(NoteLane lane, int rawOrder, int localY) const;
+    QString insertionTargetCardIdForLaneOrder(NoteLane lane, int laneOrder) const;
     QVector<NoteItem> notesWithDraggedCardPreview(NoteLane lane, int laneOrder) const;
     NoteCardWidget *findCardById(const QString &noteId) const;
+    void setDropHoverTargetCardId(const QString &noteId);
+    void clearDropHoverTarget();
     QScrollArea *hostScrollArea() const;
     void refreshDragProxyPixmap(qreal scale);
     void updateDragProxyPosition(const QPoint &globalPos);
     void clearDragProxy();
+    bool rebuildCardsFastForDragPreview(const QVector<NoteItem> &notes);
     void rebuildCards(const QVector<NoteItem> &notes);
     void handleCardDeleteRequested(const QString &noteId);
 
@@ -119,11 +125,14 @@ private:
     QVariantAnimation *m_dragProxyScaleAnimation = nullptr;
     QPropertyAnimation *m_dragProxyShadowBlurAnimation = nullptr;
     QPropertyAnimation *m_dragProxyShadowOffsetAnimation = nullptr;
+    QTimer *m_dragPreviewUpdateTimer = nullptr;
     QTimer *m_dragAutoScrollTimer = nullptr;
     int m_dragAutoScrollVelocity = 0;
     QPoint m_lastDragGlobalPos;
+    QPoint m_pendingDragPreviewGlobalPos;
     NoteLane m_dragPreviewLane = NoteLane::Today;
     int m_dragPreviewOrder = -1;
+    QString m_dropHoverTargetCardId;
     QVector<NoteItem> m_dragOriginNotes;
     QVector<NoteItem> m_dragPreviewNotes;
 };

@@ -272,6 +272,10 @@ NoteCardWidget::NoteCardWidget(QWidget *parent)
     m_hoverAnimation->setDuration(140);
     m_hoverAnimation->setEasingCurve(QEasingCurve::OutCubic);
 
+    m_dropHoverAnimation = new QPropertyAnimation(this, "dropHoverProgress", this);
+    m_dropHoverAnimation->setDuration(120);
+    m_dropHoverAnimation->setEasingCurve(QEasingCurve::OutCubic);
+
     m_dragHoldTimer = new QTimer(this);
     m_dragHoldTimer->setSingleShot(true);
     m_dragHoldTimer->setInterval(260);
@@ -538,10 +542,24 @@ void NoteCardWidget::setNoteDragActive(bool active) {
     if (active) {
         m_draggingWindow = false;
         m_pressActivated = false;
+        setDropHoverActive(false);
         setCursor(Qt::ClosedHandCursor);
     } else {
         unsetCursor();
     }
+}
+
+void NoteCardWidget::setDropHoverActive(bool active) {
+    if (active && m_noteDragActive) {
+        active = false;
+    }
+
+    if (m_dropHoverActive == active) {
+        return;
+    }
+
+    m_dropHoverActive = active;
+    animateDropHoverTo(active ? 1.0 : 0.0);
 }
 
 void NoteCardWidget::setHoverProgress(qreal progress) {
@@ -551,6 +569,20 @@ void NoteCardWidget::setHoverProgress(qreal progress) {
     }
 
     m_hoverProgress = clamped;
+    update();
+}
+
+qreal NoteCardWidget::dropHoverProgress() const {
+    return m_dropHoverProgress;
+}
+
+void NoteCardWidget::setDropHoverProgress(qreal progress) {
+    const qreal clamped = qBound(0.0, progress, 1.0);
+    if (qFuzzyCompare(m_dropHoverProgress, clamped)) {
+        return;
+    }
+
+    m_dropHoverProgress = clamped;
     update();
 }
 
@@ -682,55 +714,6 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
         action->setCheckable(true);
         action->setChecked(m_uiStyle == entry.style);
         action->setData(static_cast<int>(entry.style));
-    }
-
-    QMenu *skinPresetMenu = menu.addMenu(QStringLiteral("卡片皮肤预设"));
-    ThemeHelper::polishMenu(skinPresetMenu, m_uiStyle, m_hue);
-    struct SkinPresetAction {
-        const char *label;
-        UiStyle style;
-        int hue;
-        const char *sticker;
-    };
-    const SkinPresetAction skinPresetActions[] = {
-        {"纸张手账", UiStyle::Paper, 42, "📌"},
-        {"玻璃便签", UiStyle::Glass, -1, ""},
-        {"荧光看板", UiStyle::Neon, 98, "🔥"},
-        {"终端控制台", UiStyle::Pixel, 146, "✅"},
-        {"商务石墨", UiStyle::Graphite, 214, ""},
-        {"清晨雾面", UiStyle::Mist, 192, "💡"},
-    };
-    for (const SkinPresetAction &entry : skinPresetActions) {
-        QAction *action = skinPresetMenu->addAction(QString::fromUtf8(entry.label));
-        action->setCheckable(true);
-        action->setChecked(m_uiStyle == entry.style && m_hue == entry.hue);
-        action->setData(static_cast<int>(entry.style));
-        action->setProperty("presetHue", entry.hue);
-        action->setProperty("presetSticker", QString::fromUtf8(entry.sticker));
-    }
-
-    QMenu *moodPaletteMenu = menu.addMenu(QStringLiteral("情绪色盘"));
-    ThemeHelper::polishMenu(moodPaletteMenu, m_uiStyle, m_hue);
-    struct MoodAction {
-        const char *label;
-        int hue;
-        const char *sticker;
-    };
-    const MoodAction moodActions[] = {
-        {"默认", -1, ""},
-        {"沉静", 198, ""},
-        {"专注", 218, "📌"},
-        {"高能", 28, "🔥"},
-        {"灵感", 286, "💡"},
-        {"安心", 146, "✅"},
-        {"成就", 52, "⭐"},
-    };
-    for (const MoodAction &entry : moodActions) {
-        QAction *action = moodPaletteMenu->addAction(QString::fromUtf8(entry.label));
-        action->setCheckable(true);
-        action->setChecked(m_hue == entry.hue);
-        action->setData(entry.hue);
-        action->setProperty("moodSticker", QString::fromUtf8(entry.sticker));
     }
 
     menu.addSeparator();
@@ -865,21 +848,6 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
         return;
     }
 
-    if (chosen->parent() == skinPresetMenu) {
-        const UiStyle selectedStyle = static_cast<UiStyle>(chosen->data().toInt());
-        const int selectedHue = chosen->property("presetHue").toInt();
-        emit uiStyleChangeRequested(selectedStyle);
-        emit hueChangeRequested(m_noteId, selectedHue);
-        emit stickerChangeRequested(m_noteId, chosen->property("presetSticker").toString());
-        return;
-    }
-
-    if (chosen->parent() == moodPaletteMenu) {
-        emit hueChangeRequested(m_noteId, chosen->data().toInt());
-        emit stickerChangeRequested(m_noteId, chosen->property("moodSticker").toString());
-        return;
-    }
-
     if (chosen == scaleUpAction) {
         emit scaleInRequested();
         return;
@@ -987,7 +955,9 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
     painter.setRenderHint(QPainter::Antialiasing, true);
 
     const qreal outlineInset = 3.0 * m_uiScale;
-    const QRectF bodyRect = rect().adjusted(outlineInset, outlineInset, -outlineInset, -outlineInset);
+    QRectF bodyRect = rect().adjusted(outlineInset, outlineInset, -outlineInset, -outlineInset);
+    const qreal dropLift = (2.8 * m_uiScale) * m_dropHoverProgress;
+    bodyRect.translate(0.0, -dropLift);
     qreal radiusBase = constants::kCardCornerRadius;
     switch (m_uiStyle) {
     case UiStyle::Pixel:
@@ -1018,27 +988,37 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
         break;
     }
     const qreal radius = radiusBase * m_uiScale;
+    const qreal visualHoverProgress = qBound(0.0, m_hoverProgress + (m_dropHoverProgress * 0.42), 1.0);
     const NotePalette palette = blendPalette(ThemeHelper::paletteFor(m_uiStyle, m_hue, false),
                                              ThemeHelper::paletteFor(m_uiStyle, m_hue, true),
-                                             m_hoverProgress);
+                                             visualHoverProgress);
 
     if (m_uiStyle == UiStyle::Mist) {
         QColor shadowColor = palette.shadow;
-        shadowColor.setAlpha(qBound(28, static_cast<int>(shadowColor.alpha() * 0.78), 160));
+        shadowColor.setAlpha(qBound(28,
+                                    static_cast<int>((shadowColor.alpha() * 0.78)
+                                                     + (44.0 * m_dropHoverProgress)),
+                                    180));
         painter.setPen(Qt::NoPen);
         painter.setBrush(shadowColor);
         const QRectF shadowRect = bodyRect.adjusted(0.0, 2.0 * m_uiScale, 0.0, 2.0 * m_uiScale);
         painter.drawRoundedRect(shadowRect, radius + (1.0 * m_uiScale), radius + (1.0 * m_uiScale));
     } else if (m_uiStyle == UiStyle::Sunrise) {
         QColor shadowColor = palette.shadow;
-        shadowColor.setAlpha(qBound(24, static_cast<int>(shadowColor.alpha() * 0.74), 148));
+        shadowColor.setAlpha(qBound(24,
+                                    static_cast<int>((shadowColor.alpha() * 0.74)
+                                                     + (40.0 * m_dropHoverProgress)),
+                                    172));
         painter.setPen(Qt::NoPen);
         painter.setBrush(shadowColor);
         const QRectF shadowRect = bodyRect.adjusted(0.0, 2.0 * m_uiScale, 0.0, 2.0 * m_uiScale);
         painter.drawRoundedRect(shadowRect, radius + (1.0 * m_uiScale), radius + (1.0 * m_uiScale));
     } else if (m_uiStyle != UiStyle::Pixel) {
         QColor shadowColor = palette.shadow;
-        shadowColor.setAlpha(qBound(18, static_cast<int>(shadowColor.alpha() * 0.56), 126));
+        shadowColor.setAlpha(qBound(18,
+                                    static_cast<int>((shadowColor.alpha() * 0.56)
+                                                     + (36.0 * m_dropHoverProgress)),
+                                    148));
         painter.setPen(Qt::NoPen);
         painter.setBrush(shadowColor);
         const QRectF shadowRect = bodyRect.adjusted(0.0, 1.5 * m_uiScale, 0.0, 1.5 * m_uiScale);
@@ -1232,6 +1212,36 @@ void NoteCardWidget::paintEvent(QPaintEvent *event) {
         painter.fillPath(bodyPath, soft);
         break;
     }
+    }
+
+    if (m_dropHoverProgress > 0.001) {
+        QColor dropGlowTop = palette.highlightTop.lighter(128);
+        dropGlowTop.setAlpha(qBound(0,
+                                    static_cast<int>(42.0 * m_dropHoverProgress),
+                                    96));
+        QRectF dropGlowRect = bodyRect.adjusted(1.0, 1.0, -1.0, -(bodyRect.height() * 0.54));
+        QLinearGradient dropGlowGradient(dropGlowRect.topLeft(), dropGlowRect.bottomLeft());
+        dropGlowGradient.setColorAt(0.0, dropGlowTop);
+        dropGlowGradient.setColorAt(1.0, QColor(dropGlowTop.red(),
+                                                dropGlowTop.green(),
+                                                dropGlowTop.blue(),
+                                                0));
+        QPainterPath dropGlowPath;
+        dropGlowPath.addRoundedRect(dropGlowRect,
+                                    qMax<qreal>(1.0, radius - (2.0 * m_uiScale)),
+                                    qMax<qreal>(1.0, radius - (2.0 * m_uiScale)));
+        painter.fillPath(dropGlowPath, dropGlowGradient);
+
+        QColor dropOutline = palette.highlightTop.lighter(136);
+        dropOutline.setAlpha(qBound(0,
+                                    static_cast<int>(64.0 + (84.0 * m_dropHoverProgress)),
+                                    190));
+        const qreal outlineWidth = (1.0 + (1.1 * m_dropHoverProgress)) * m_uiScale;
+        painter.setPen(QPen(dropOutline, outlineWidth));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(bodyRect.adjusted(0.5, 0.5, -0.5, -0.5),
+                                qMax<qreal>(1.0, radius - (0.4 * m_uiScale)),
+                                qMax<qreal>(1.0, radius - (0.4 * m_uiScale)));
     }
 
     if (!m_sticker.trimmed().isEmpty()) {
@@ -2335,6 +2345,23 @@ void NoteCardWidget::animateHoverTo(qreal target) {
     }
     setHoverProgress(target);
     updateDisplayText();
+}
+
+void NoteCardWidget::animateDropHoverTo(qreal target) {
+    if (m_dropHoverAnimation == nullptr) {
+        setDropHoverProgress(target);
+        return;
+    }
+
+    const qreal clampedTarget = qBound(0.0, target, 1.0);
+    if (qFuzzyCompare(m_dropHoverProgress, clampedTarget)) {
+        return;
+    }
+
+    m_dropHoverAnimation->stop();
+    m_dropHoverAnimation->setStartValue(m_dropHoverProgress);
+    m_dropHoverAnimation->setEndValue(clampedTarget);
+    m_dropHoverAnimation->start();
 }
 
 }  // namespace glassnote
