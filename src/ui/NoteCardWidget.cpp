@@ -4,7 +4,6 @@
 #include <QApplication>
 #include <QContextMenuEvent>
 #include <QColorDialog>
-#include <QDateTime>
 #include <QDir>
 #include <QEvent>
 #include <QFileDialog>
@@ -552,10 +551,6 @@ NoteLane NoteCardWidget::lane() const {
     return m_lane;
 }
 
-qint64 NoteCardWidget::reminderEpochMsec() const {
-    return m_reminderEpochMsec;
-}
-
 UiStyle NoteCardWidget::uiStyle() const {
     return m_uiStyle;
 }
@@ -689,10 +684,6 @@ void NoteCardWidget::setWindowLocked(bool enabled) {
             m_dragHoldTimer->stop();
         }
     }
-}
-
-void NoteCardWidget::setReminderEpochMsec(qint64 reminderEpochMsec) {
-    m_reminderEpochMsec = qMax<qint64>(0, reminderEpochMsec);
 }
 
 void NoteCardWidget::setUiStyle(UiStyle uiStyle) {
@@ -976,21 +967,6 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
     windowLockAction->setCheckable(true);
     windowLockAction->setChecked(m_windowLocked);
 
-    efficiencyMenu->addSeparator();
-    QMenu *reminderMenu = efficiencyMenu->addMenu(QStringLiteral("事项提醒"));
-    ThemeHelper::polishMenu(reminderMenu, m_uiStyle, m_hue);
-    if (m_reminderEpochMsec > 0) {
-        const QString reminderText = QDateTime::fromMSecsSinceEpoch(m_reminderEpochMsec)
-                                         .toString(QStringLiteral("yyyy-MM-dd HH:mm"));
-        QAction *currentReminderAction = reminderMenu->addAction(QStringLiteral("当前：%1").arg(reminderText));
-        currentReminderAction->setEnabled(false);
-    }
-    QAction *setReminderAction = reminderMenu->addAction(m_reminderEpochMsec > 0
-                                                              ? QStringLiteral("修改提醒时间...")
-                                                              : QStringLiteral("设置提醒时间..."));
-    QAction *clearReminderAction = reminderMenu->addAction(QStringLiteral("清除提醒"));
-    clearReminderAction->setEnabled(m_reminderEpochMsec > 0);
-
     menu.addSeparator();
     QAction *openDirAction = menu.addAction(QStringLiteral("打开 JSON 数据目录"));
     QAction *quitAction = menu.addAction(QStringLiteral("退出软件"));
@@ -1140,16 +1116,6 @@ void NoteCardWidget::contextMenuEvent(QContextMenuEvent *event) {
     if (chosen == windowLockAction) {
         m_windowLocked = windowLockAction->isChecked();
         emit windowLockToggled(m_windowLocked);
-        return;
-    }
-
-    if (chosen == setReminderAction) {
-        emit reminderSetRequested(m_noteId);
-        return;
-    }
-
-    if (chosen == clearReminderAction) {
-        emit reminderClearedRequested(m_noteId);
         return;
     }
 

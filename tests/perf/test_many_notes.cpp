@@ -23,7 +23,6 @@ AppState makeState(int noteCount) {
         item.order = noteCount - index;
         item.hue = -1;
         item.sticker = QString();
-        item.reminderEpochMsec = 0;
         state.notes.append(item);
     }
 

@@ -998,11 +998,6 @@ void MainWindow::initializeLayout() {
     connect(m_boardWidget, &NotesBoardWidget::autoCheckUpdatesToggled, this, &MainWindow::autoCheckUpdatesToggled);
     connect(m_boardWidget, &NotesBoardWidget::windowLockToggled, this, &MainWindow::windowLockToggled);
     connect(m_boardWidget, &NotesBoardWidget::checkForUpdatesRequested, this, &MainWindow::checkForUpdatesRequested);
-    connect(m_boardWidget, &NotesBoardWidget::reminderSetRequested, this, &MainWindow::reminderSetRequested);
-    connect(m_boardWidget,
-            &NotesBoardWidget::reminderClearedRequested,
-            this,
-            &MainWindow::reminderClearedRequested);
     connect(m_boardWidget, &NotesBoardWidget::timelineReplayRequested, this, &MainWindow::timelineReplayRequested);
     connect(m_boardWidget, &NotesBoardWidget::openStorageDirectoryRequested, this, &MainWindow::openStorageDirectoryRequested);
     connect(m_boardWidget, &NotesBoardWidget::quitRequested, this, &MainWindow::quitRequested);

@@ -39,7 +39,6 @@ AppState makeState(int noteCount) {
         item.order = noteCount - index;
         item.hue = (index * 13) % 360;
         item.sticker = (index % 2 == 0) ? QStringLiteral("⭐") : QStringLiteral("🔥");
-        item.reminderEpochMsec = 1700000000000LL + static_cast<qint64>(index);
         state.notes.append(item);
     }
     return state;
@@ -87,7 +86,6 @@ void GlassNoteTests::serialization_roundTripPersistsFields() {
     QCOMPARE(loaded.notes.at(0).text, QStringLiteral("note-0"));
     QCOMPARE(loaded.notes.at(0).hue, 0);
     QCOMPARE(loaded.notes.at(0).sticker, QStringLiteral("⭐"));
-    QCOMPARE(loaded.notes.at(0).reminderEpochMsec, 1700000000000LL);
     QCOMPARE(loaded.importedStickers.size(), 2);
     QCOMPARE(loaded.importedStickers.at(0),
              QStringLiteral("__image_sticker__:%1").arg(QDir::toNativeSeparators(QStringLiteral("C:/stickers/cat.png"))));
@@ -106,7 +104,7 @@ void GlassNoteTests::serialization_acceptsLegacyNumericUiStyle() {
   "version": 1,
   "uiStyle": 6,
   "notes": [
-    { "id": "n1", "text": "legacy", "order": 0, "hue": -1, "reminderEpochMsec": 0 }
+    { "id": "n1", "text": "legacy", "order": 0, "hue": -1 }
   ]
 })");
     file.close();
@@ -152,9 +150,9 @@ void GlassNoteTests::serialization_legacyBackfillsImportedStickers() {
 
 void GlassNoteTests::controllerLogic_syncNoteOrderReindexes() {
     QVector<NoteItem> notes;
-    notes.append(NoteItem{QStringLiteral("a"), QStringLiteral("A"), 99, NoteLane::Today, -1, QString(), 0});
-    notes.append(NoteItem{QStringLiteral("b"), QStringLiteral("B"), 88, NoteLane::Today, -1, QString(), 0});
-    notes.append(NoteItem{QStringLiteral("c"), QStringLiteral("C"), 77, NoteLane::Today, -1, QString(), 0});
+    notes.append(NoteItem{QStringLiteral("a"), QStringLiteral("A"), 99, NoteLane::Today, -1, QString()});
+    notes.append(NoteItem{QStringLiteral("b"), QStringLiteral("B"), 88, NoteLane::Today, -1, QString()});
+    notes.append(NoteItem{QStringLiteral("c"), QStringLiteral("C"), 77, NoteLane::Today, -1, QString()});
 
     appstate::syncNoteOrder(&notes);
 
@@ -174,7 +172,6 @@ void GlassNoteTests::controllerLogic_ensureAtLeastOneNoteCreatesDefault() {
     QCOMPARE(state.notes.constFirst().order, 0);
     QCOMPARE(state.notes.constFirst().hue, -1);
     QCOMPARE(state.notes.constFirst().sticker, QString());
-    QCOMPARE(state.notes.constFirst().reminderEpochMsec, 0);
 }
 
 void GlassNoteTests::integration_loadEditSaveReloadFlow() {

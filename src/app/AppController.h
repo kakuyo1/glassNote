@@ -10,7 +10,6 @@
 
 class QMenu;
 class QSystemTrayIcon;
-class QTimer;
 class QAction;
 class QClipboard;
 class QNetworkAccessManager;
@@ -64,11 +63,8 @@ private:
     void handleAutoCheckUpdatesToggled(bool enabled);
     void handleCheckForUpdatesRequested();
     void handleWindowLockToggled(bool enabled);
-    void handleReminderSetRequested(const QString &noteId);
-    void handleReminderClearedRequested(const QString &noteId);
     void handleTimelineReplayRequested();
     void handleStorageFileChanged(const QString &filePath);
-    void handleReminderTimeout();
     void handleQuickCaptureRequested();
     void handleQuickCaptureDropRequested(const QString &text);
     void handleClipboardDataChanged();
@@ -83,8 +79,6 @@ private:
     bool appendCapturedNote(const QString &text);
     void registerGlobalHotkey();
     void unregisterGlobalHotkey();
-    void scheduleNextReminder();
-    QString reminderPreviewText(const NoteItem &note) const;
     void openStorageDirectory();
     void quitApplication();
     void showLoadRecoveryMessage(const JsonStorageService::LoadResult &result, bool fromExternalSync);
@@ -104,7 +98,6 @@ private:
     JsonStorageService m_storageService;
     bool m_externalFileSyncEnabled = true;
     qint64 m_lastInternalSaveMsec = 0;
-    QTimer *m_reminderTimer = nullptr;
     QSystemTrayIcon *m_trayIcon = nullptr;
     QMenu *m_trayMenu = nullptr;
     QClipboard *m_clipboard = nullptr;

@@ -22,8 +22,7 @@ bool notesEquivalent(const QVector<NoteItem> &left, const QVector<NoteItem> &rig
             || lhs.order != rhs.order
             || normalizedNoteLane(lhs.lane) != normalizedNoteLane(rhs.lane)
             || lhs.hue != rhs.hue
-            || lhs.sticker != rhs.sticker
-            || lhs.reminderEpochMsec != rhs.reminderEpochMsec) {
+            || lhs.sticker != rhs.sticker) {
             return false;
         }
     }
@@ -85,7 +84,6 @@ NoteItem createEmptyNote(int order) {
     note.order = order;
     note.hue = -1;
     note.sticker.clear();
-    note.reminderEpochMsec = 0;
     return note;
 }
 

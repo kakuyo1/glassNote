@@ -35,7 +35,6 @@ AppState makeState(int noteCount) {
         item.order = index;
         item.hue = (index * 13) % 360;
         item.sticker = (index % 2 == 0) ? QStringLiteral("⭐") : QStringLiteral("🔥");
-        item.reminderEpochMsec = 1700000000000LL + static_cast<qint64>(index);
         state.notes.append(item);
     }
 

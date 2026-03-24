@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QString>
-#include <QtGlobal>
 
 namespace glassnote {
 
@@ -58,7 +57,6 @@ struct NoteItem {
     NoteLane lane = NoteLane::Today;
     int hue = -1;
     QString sticker;
-    qint64 reminderEpochMsec = 0;
 };
 
 }  // namespace glassnote

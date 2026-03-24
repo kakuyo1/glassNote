@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QDate>
+#include <QDateEdit>
 #include <QDir>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -9,7 +10,6 @@
 #include <QCoreApplication>
 #include <QCursor>
 #include <QDesktopServices>
-#include <QDateTimeEdit>
 #include <QCryptographicHash>
 #include <QFile>
 #include <QFileDialog>
@@ -76,8 +76,6 @@ constexpr UINT kQuickCaptureHotkeyModifiers = MOD_CONTROL | MOD_ALT | MOD_NOREPE
 constexpr UINT kQuickCaptureHotkeyVirtualKey = 0x51;  // Q
 #endif
 
-constexpr int kReminderPollToleranceMsec = 500;
-constexpr int kReminderMaxIntervalMsec = 24 * 24 * 60 * 60 * 1000;
 constexpr int kClipboardInboxPreviewLength = 36;
 constexpr qint64 kAutoUpdateCheckMinIntervalMsec = 24LL * 60LL * 60LL * 1000LL;
 const auto kImportedImageStickerPrefix = QStringLiteral("__image_sticker__:");
@@ -457,36 +455,6 @@ bool hasMeaningfulText(const QString &text) {
     return !document.toPlainText().trimmed().isEmpty();
 }
 
-bool promptReminderDateTime(QWidget *parent, const QDateTime &initialValue, qint64 *selectedEpochMsec) {
-    if (selectedEpochMsec == nullptr) {
-        return false;
-    }
-
-    QDialog dialog(parent);
-    dialog.setWindowTitle(QStringLiteral("设置事项提醒"));
-
-    auto *layout = new QVBoxLayout(&dialog);
-    auto *dateTimeEdit = new QDateTimeEdit(&dialog);
-    dateTimeEdit->setCalendarPopup(true);
-    dateTimeEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
-    dateTimeEdit->setDateTime(initialValue);
-    dateTimeEdit->setMinimumDateTime(QDateTime::currentDateTime().addSecs(60));
-    layout->addWidget(dateTimeEdit);
-
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-
-    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-    if (dialog.exec() != QDialog::Accepted) {
-        return false;
-    }
-
-    *selectedEpochMsec = dateTimeEdit->dateTime().toMSecsSinceEpoch();
-    return true;
-}
-
 QDate latestSnapshotDate(const QVector<DailyTimelineSnapshot> &snapshots) {
     QDate latestDate;
     for (const DailyTimelineSnapshot &snapshot : snapshots) {
@@ -743,14 +711,11 @@ AppController::AppController(QObject *parent)
     : QObject(parent) {
     m_autoSaveCoordinator = new AutoSaveCoordinator(this);
     m_storageFileWatcher = new QFileSystemWatcher(this);
-    m_reminderTimer = new QTimer(this);
     m_updateNetworkManager = new QNetworkAccessManager(this);
-    m_reminderTimer->setSingleShot(true);
 
     connect(m_autoSaveCoordinator, &AutoSaveCoordinator::saveRequested, this, &AppController::saveState);
     connect(qApp, &QCoreApplication::aboutToQuit, this, &AppController::saveState);
     connect(m_storageFileWatcher, &QFileSystemWatcher::fileChanged, this, &AppController::handleStorageFileChanged);
-    connect(m_reminderTimer, &QTimer::timeout, this, &AppController::handleReminderTimeout);
 
     if (qApp != nullptr) {
         qApp->installNativeEventFilter(this);
@@ -834,11 +799,6 @@ void AppController::initialize() {
             this,
             &AppController::handleCheckForUpdatesRequested);
     connect(m_mainWindow, &MainWindow::windowLockToggled, this, &AppController::handleWindowLockToggled);
-    connect(m_mainWindow, &MainWindow::reminderSetRequested, this, &AppController::handleReminderSetRequested);
-    connect(m_mainWindow,
-            &MainWindow::reminderClearedRequested,
-            this,
-            &AppController::handleReminderClearedRequested);
     connect(m_mainWindow, &MainWindow::timelineReplayRequested, this, &AppController::handleTimelineReplayRequested);
     connect(m_mainWindow, &MainWindow::openStorageDirectoryRequested, this, &AppController::openStorageDirectory);
     connect(m_mainWindow, &MainWindow::quitRequested, this, &AppController::quitApplication);
@@ -859,7 +819,6 @@ void AppController::initialize() {
 
     m_mainWindow->show();
     updateTrayMenuText();
-    scheduleNextReminder();
     showLoadRecoveryMessage(loadResult, false);
     scheduleAutomaticUpdateCheck();
 }
@@ -1109,10 +1068,6 @@ void AppController::quitApplication() {
     QTimer::singleShot(0, this, [this]() {
         saveState();
 
-        if (m_reminderTimer != nullptr) {
-            m_reminderTimer->stop();
-        }
-
         if (m_storageFileWatcher != nullptr) {
             const QStringList watchedFiles = m_storageFileWatcher->files();
             if (!watchedFiles.isEmpty()) {
@@ -1223,7 +1178,6 @@ void AppController::handleImportJsonRequested() {
         ensureAtLeastOneNote();
         applyStateToWindow();
         updateTrayMenuText();
-        scheduleNextReminder();
         m_autoSaveCoordinator->requestSave();
         QMessageBox::information(m_mainWindow,
                                  QStringLiteral("导入完成"),
@@ -1253,7 +1207,6 @@ void AppController::handleImportJsonRequested() {
 
         ensureAtLeastOneNote();
         refreshWindow();
-        scheduleNextReminder();
         m_autoSaveCoordinator->requestSave();
         QMessageBox::information(m_mainWindow,
                                  QStringLiteral("导入完成"),
@@ -1316,7 +1269,6 @@ void AppController::handleRestoreLatestBackupRequested() {
     ensureAtLeastOneNote();
     applyStateToWindow();
     updateTrayMenuText();
-    scheduleNextReminder();
     m_autoSaveCoordinator->requestSave();
 
     QMessageBox::information(m_mainWindow,
@@ -1762,55 +1714,6 @@ void AppController::handleWindowLockToggled(bool enabled) {
     m_autoSaveCoordinator->requestSave();
 }
 
-void AppController::handleReminderSetRequested(const QString &noteId) {
-    if (m_mainWindow == nullptr) {
-        return;
-    }
-
-    for (NoteItem &note : m_state.notes) {
-        if (note.id != noteId) {
-            continue;
-        }
-
-        const qint64 nowEpochMsec = QDateTime::currentMSecsSinceEpoch();
-        const QDateTime initialDateTime = note.reminderEpochMsec > nowEpochMsec
-                                              ? QDateTime::fromMSecsSinceEpoch(note.reminderEpochMsec)
-                                              : QDateTime::currentDateTime().addSecs(10 * 60);
-
-        qint64 selectedEpochMsec = 0;
-        if (!promptReminderDateTime(m_mainWindow, initialDateTime, &selectedEpochMsec)) {
-            return;
-        }
-
-        if (selectedEpochMsec <= nowEpochMsec) {
-            QMessageBox::warning(m_mainWindow,
-                                 QStringLiteral("提醒时间无效"),
-                                 QStringLiteral("请选择当前时间之后的提醒时间。"));
-            return;
-        }
-
-        note.reminderEpochMsec = selectedEpochMsec;
-        refreshWindow();
-        scheduleNextReminder();
-        m_autoSaveCoordinator->requestSave();
-        return;
-    }
-}
-
-void AppController::handleReminderClearedRequested(const QString &noteId) {
-    for (NoteItem &note : m_state.notes) {
-        if (note.id != noteId) {
-            continue;
-        }
-
-        note.reminderEpochMsec = 0;
-        refreshWindow();
-        scheduleNextReminder();
-        m_autoSaveCoordinator->requestSave();
-        return;
-    }
-}
-
 void AppController::handleTimelineReplayRequested() {
     if (m_mainWindow == nullptr) {
         return;
@@ -1850,7 +1753,6 @@ void AppController::handleTimelineReplayRequested() {
     m_state.notes = resolvedNotes;
     ensureAtLeastOneNote();
     refreshWindow();
-    scheduleNextReminder();
     m_autoSaveCoordinator->requestSave();
 
     if (resolvedDateKey == dateKey) {
@@ -1864,43 +1766,6 @@ void AppController::handleTimelineReplayRequested() {
                              QStringLiteral("时间轴回放"),
                              QStringLiteral("%1 无快照，已回放最近历史快照：%2。")
                                  .arg(dateKey, resolvedDateKey));
-}
-
-void AppController::handleReminderTimeout() {
-    const qint64 nowEpochMsec = QDateTime::currentMSecsSinceEpoch();
-    bool stateChanged = false;
-
-    for (NoteItem &note : m_state.notes) {
-        if (note.reminderEpochMsec <= 0) {
-            continue;
-        }
-
-        if (note.reminderEpochMsec > nowEpochMsec + kReminderPollToleranceMsec) {
-            continue;
-        }
-
-        const QString preview = reminderPreviewText(note);
-        if (m_trayIcon != nullptr && m_trayIcon->isVisible()) {
-            m_trayIcon->showMessage(QStringLiteral("glassNote 事项提醒"),
-                                    preview,
-                                    QSystemTrayIcon::Information,
-                                    8000);
-        } else if (m_mainWindow != nullptr) {
-            QMessageBox::information(m_mainWindow,
-                                     QStringLiteral("事项提醒"),
-                                     preview);
-        }
-
-        note.reminderEpochMsec = 0;
-        stateChanged = true;
-    }
-
-    if (stateChanged) {
-        refreshWindow();
-        m_autoSaveCoordinator->requestSave();
-    }
-
-    scheduleNextReminder();
 }
 
 void AppController::handleQuickCaptureRequested() {
@@ -2011,7 +1876,6 @@ void AppController::handleStorageFileChanged(const QString &filePath) {
     ensureAtLeastOneNote();
     applyStateToWindow();
     updateTrayMenuText();
-    scheduleNextReminder();
     showLoadRecoveryMessage(loadResult, true);
     refreshStorageFileWatch();
 }
@@ -2276,52 +2140,6 @@ void AppController::unregisterGlobalHotkey() {
         m_quickCaptureHotkeyRegistered = false;
     }
 #endif
-}
-
-void AppController::scheduleNextReminder() {
-    if (m_reminderTimer == nullptr) {
-        return;
-    }
-
-    qint64 nearestEpochMsec = 0;
-    for (const NoteItem &note : std::as_const(m_state.notes)) {
-        if (note.reminderEpochMsec <= 0) {
-            continue;
-        }
-
-        if (nearestEpochMsec <= 0 || note.reminderEpochMsec < nearestEpochMsec) {
-            nearestEpochMsec = note.reminderEpochMsec;
-        }
-    }
-
-    if (nearestEpochMsec <= 0) {
-        m_reminderTimer->stop();
-        return;
-    }
-
-    const qint64 nowEpochMsec = QDateTime::currentMSecsSinceEpoch();
-    const qint64 dueAfterMsec = qMax<qint64>(1, nearestEpochMsec - nowEpochMsec);
-    const int interval = static_cast<int>(qMin<qint64>(dueAfterMsec, kReminderMaxIntervalMsec));
-    m_reminderTimer->start(interval);
-}
-
-QString AppController::reminderPreviewText(const NoteItem &note) const {
-    QTextDocument document;
-    if (Qt::mightBeRichText(note.text)) {
-        document.setHtml(note.text);
-    } else {
-        document.setPlainText(note.text);
-    }
-
-    QString plainText = document.toPlainText().simplified();
-    if (plainText.isEmpty()) {
-        plainText = QStringLiteral("（空白事项）");
-    }
-    if (plainText.size() > 60) {
-        plainText = plainText.left(60) + QStringLiteral("...");
-    }
-
-    return QStringLiteral("提醒：%1").arg(plainText);
 }
 
 void AppController::saveState() {

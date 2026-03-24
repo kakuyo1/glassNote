@@ -64,8 +64,6 @@ signals:
     void autoCheckUpdatesToggled(bool enabled);
     void windowLockToggled(bool enabled);
     void checkForUpdatesRequested();
-    void reminderSetRequested(const QString &noteId);
-    void reminderClearedRequested(const QString &noteId);
     void timelineReplayRequested();
     void openStorageDirectoryRequested();
     void quitRequested();

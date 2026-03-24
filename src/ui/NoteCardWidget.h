@@ -40,7 +40,6 @@ public:
     int hue() const;
     QString sticker() const;
     NoteLane lane() const;
-    qint64 reminderEpochMsec() const;
     UiStyle uiStyle() const;
 
     void setNoteId(const QString &noteId);
@@ -56,7 +55,6 @@ public:
     void setLaunchAtStartupEnabled(bool enabled);
     void setAutoCheckUpdatesEnabled(bool enabled);
     void setWindowLocked(bool enabled);
-    void setReminderEpochMsec(qint64 reminderEpochMsec);
     void setUiStyle(UiStyle uiStyle);
     void setNoteDragActive(bool active);
     void setDropHoverActive(bool active);
@@ -85,8 +83,6 @@ signals:
     void autoCheckUpdatesToggled(bool enabled);
     void windowLockToggled(bool enabled);
     void checkForUpdatesRequested();
-    void reminderSetRequested(const QString &noteId);
-    void reminderClearedRequested(const QString &noteId);
     void timelineReplayRequested();
     void openStorageDirectoryRequested();
     void quitRequested();
@@ -184,7 +180,6 @@ private:
     bool m_launchAtStartupEnabled = false;
     bool m_autoCheckUpdatesEnabled = true;
     bool m_windowLocked = false;
-    qint64 m_reminderEpochMsec = 0;
     UiStyle m_uiStyle = UiStyle::Glass;
     QPoint m_pressGlobalPos;
     QPoint m_dragOffset;

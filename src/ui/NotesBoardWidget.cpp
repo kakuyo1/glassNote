@@ -337,7 +337,6 @@ QVector<NoteItem> NotesBoardWidget::notes() const {
         item.lane = card->lane();
         item.hue = card->hue();
         item.sticker = card->sticker();
-        item.reminderEpochMsec = card->reminderEpochMsec();
         item.order = static_cast<int>(index);
         values.append(item);
     }
@@ -1173,7 +1172,6 @@ bool NotesBoardWidget::rebuildCardsFastIfPossible(const QVector<NoteItem> &notes
         card->setLaunchAtStartupEnabled(m_launchAtStartupEnabled);
         card->setAutoCheckUpdatesEnabled(m_autoCheckUpdatesEnabled);
         card->setWindowLocked(m_windowLocked);
-        card->setReminderEpochMsec(item.reminderEpochMsec);
 
         if (normalizedNoteLane(card->lane()) != itemLane) {
             card->setLane(itemLane);
@@ -1282,8 +1280,6 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
             connect(card, &NoteCardWidget::autoCheckUpdatesToggled, this, &NotesBoardWidget::autoCheckUpdatesToggled);
             connect(card, &NoteCardWidget::windowLockToggled, this, &NotesBoardWidget::windowLockToggled);
             connect(card, &NoteCardWidget::checkForUpdatesRequested, this, &NotesBoardWidget::checkForUpdatesRequested);
-            connect(card, &NoteCardWidget::reminderSetRequested, this, &NotesBoardWidget::reminderSetRequested);
-            connect(card, &NoteCardWidget::reminderClearedRequested, this, &NotesBoardWidget::reminderClearedRequested);
             connect(card, &NoteCardWidget::timelineReplayRequested, this, &NotesBoardWidget::timelineReplayRequested);
             connect(card, &NoteCardWidget::openStorageDirectoryRequested, this, &NotesBoardWidget::openStorageDirectoryRequested);
             connect(card, &NoteCardWidget::quitRequested, this, &NotesBoardWidget::quitRequested);
@@ -1309,7 +1305,6 @@ void NotesBoardWidget::rebuildCards(const QVector<NoteItem> &notes) {
         card->setLaunchAtStartupEnabled(m_launchAtStartupEnabled);
         card->setAutoCheckUpdatesEnabled(m_autoCheckUpdatesEnabled);
         card->setWindowLocked(m_windowLocked);
-        card->setReminderEpochMsec(item.reminderEpochMsec);
         const bool keepHiddenForDrag = m_noteDragInProgress && item.id == m_hiddenCardId;
         if (keepHiddenForDrag) {
             card->hide();

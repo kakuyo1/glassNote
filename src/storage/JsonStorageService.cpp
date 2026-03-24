@@ -203,7 +203,6 @@ QJsonObject noteToJson(const NoteItem &note) {
     object.insert(QStringLiteral("lane"), noteLaneToStorageValue(note.lane));
     object.insert(QStringLiteral("hue"), note.hue);
     object.insert(QStringLiteral("sticker"), note.sticker);
-    object.insert(QStringLiteral("reminderEpochMsec"), note.reminderEpochMsec);
     return object;
 }
 
@@ -222,8 +221,7 @@ bool notesEquivalent(const QVector<NoteItem> &left, const QVector<NoteItem> &rig
             || lhs.order != rhs.order
             || normalizedNoteLane(lhs.lane) != normalizedNoteLane(rhs.lane)
             || lhs.hue != rhs.hue
-            || lhs.sticker != rhs.sticker
-            || lhs.reminderEpochMsec != rhs.reminderEpochMsec) {
+            || lhs.sticker != rhs.sticker) {
             return false;
         }
     }
@@ -282,16 +280,6 @@ NoteItem noteFromJson(const QJsonObject &object, int fallbackOrder) {
     note.lane = noteLaneFromStorageValue(object.value(QStringLiteral("lane")));
     note.hue = object.value(QStringLiteral("hue")).toInt(-1);
     note.sticker = object.value(QStringLiteral("sticker")).toString();
-
-    const QJsonValue reminderValue = object.value(QStringLiteral("reminderEpochMsec"));
-    if (reminderValue.isString()) {
-        note.reminderEpochMsec = reminderValue.toString().toLongLong();
-    } else {
-        note.reminderEpochMsec = static_cast<qint64>(reminderValue.toDouble(0.0));
-    }
-    if (note.reminderEpochMsec < 0) {
-        note.reminderEpochMsec = 0;
-    }
 
     return note;
 }
@@ -741,7 +729,6 @@ AppState JsonStorageService::defaultState() const {
     note.lane = NoteLane::Today;
     note.hue = -1;
     note.sticker.clear();
-    note.reminderEpochMsec = 0;
     state.notes.append(note);
     state.baseLayerOpacity = constants::kDefaultBaseLayerOpacity;
     state.uiScale = constants::kDefaultUiScale;
